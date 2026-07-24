@@ -4,10 +4,12 @@ import { getRoomFromDb, saveRoomToDb, getDb } from "../db";
 
 export async function GET(
   request: Request,
-  { params }: { params: { code: string } }
+  { params }: { params: Promise<{ code: string }> }
 ) {
   try {
-    const code = params.code.toUpperCase();
+    // Await params in Next.js 15+ as it is now a Promise
+    const resolvedParams = await params;
+    const code = resolvedParams.code.toUpperCase();
     const isDbConnected = getDb() !== null;
     
     if (isDbConnected) {
@@ -32,10 +34,12 @@ export async function GET(
 
 export async function POST(
   request: Request,
-  { params }: { params: { code: string } }
+  { params }: { params: Promise<{ code: string }> }
 ) {
   try {
-    const code = params.code.toUpperCase();
+    // Await params in Next.js 15+ as it is now a Promise
+    const resolvedParams = await params;
+    const code = resolvedParams.code.toUpperCase();
     const body = await request.json();
     const isDbConnected = getDb() !== null;
     

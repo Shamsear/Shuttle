@@ -488,7 +488,7 @@ export default function Home() {
   };
 
   // Check for winning conditions
-  const checkWinner = (match: MatchState) => {
+  const checkWinner = (match: MatchState): Side | null => {
     const scoreA = match.left.score;
     const scoreB = match.right.score;
     const isRally = match.scoringSystem === "rally";
