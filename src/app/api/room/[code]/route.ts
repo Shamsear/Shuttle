@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { rooms } from "../store";
 import { getRoomFromDb, saveRoomToDb, getDb } from "../db";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ code: string }> }
@@ -11,6 +13,9 @@ export async function GET(
     const resolvedParams = await params;
     const code = resolvedParams.code.toUpperCase();
     const isDbConnected = getDb() !== null;
+    const headers = {
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    };
     
     if (isDbConnected) {
       // Fetch from Neon database
@@ -18,14 +23,14 @@ export async function GET(
       if (!dbRoom) {
         return NextResponse.json({ error: "Invite code not found in database" }, { status: 404 });
       }
-      return NextResponse.json(dbRoom);
+      return NextResponse.json(dbRoom, { headers });
     } else {
       // Fallback: Fetch from in-memory global registry
       const localRoom = rooms.get(code);
       if (!localRoom) {
         return NextResponse.json({ error: "Invite code not found locally" }, { status: 404 });
       }
-      return NextResponse.json(localRoom);
+      return NextResponse.json(localRoom, { headers });
     }
   } catch (error: any) {
     return NextResponse.json({ error: "Failed to fetch room state" }, { status: 500 });

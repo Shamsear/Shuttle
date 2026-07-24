@@ -2,17 +2,22 @@ import { NextResponse } from "next/server";
 import { rooms, RoomState } from "./store";
 import { saveRoomToDb, getAllRoomsFromDb, getDb } from "./db";
 
+export const dynamic = "force-dynamic";
+
 // GET handler: fetch all active courts
 export async function GET() {
   try {
     const isDbConnected = getDb() !== null;
+    const headers = {
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    };
     if (isDbConnected) {
       const dbRooms = await getAllRoomsFromDb();
-      return NextResponse.json(dbRooms);
+      return NextResponse.json(dbRooms, { headers });
     } else {
       // In-memory fallback
       const localRooms = Array.from(rooms.values());
-      return NextResponse.json(localRooms);
+      return NextResponse.json(localRooms, { headers });
     }
   } catch (error: any) {
     return NextResponse.json({ error: "Failed to fetch courts list" }, { status: 500 });

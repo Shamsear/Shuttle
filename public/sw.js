@@ -1,4 +1,4 @@
-const CACHE_NAME = 'shuttle-score-cache-v2';
+const CACHE_NAME = 'shuttle-score-cache-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/manifest.json',
@@ -31,35 +31,43 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Ignore non-GET, Next.js internal paths, HMR, or dev assets
   if (event.request.method !== 'GET') return;
-  const url = event.request.url;
-  if (url.includes('/_next/') || url.includes('turbopack') || url.includes('webpack')) {
+  
+  const url = new URL(event.request.url);
+  
+  // ALWAYS bypass service worker cache for API routes, internal build chunks, dev server sockets
+  if (
+    url.pathname.includes('/_next/') || 
+    url.pathname.includes('/api/') ||
+    url.pathname.includes('turbopack') || 
+    url.pathname.includes('webpack')
+  ) {
     return;
   }
 
+  // Network-First Strategy for static pages & assets to prevent stale views
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-
-      return fetch(event.request)
-        .then((networkResponse) => {
-          if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
-            return networkResponse;
-          }
+    fetch(event.request)
+      .then((networkResponse) => {
+        // Cache successful basic responses
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseToCache);
           });
-          return networkResponse;
-        })
-        .catch(() => {
+        }
+        return networkResponse;
+      })
+      .catch(() => {
+        // Fallback to cache if offline
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) {
+            return cachedResponse;
+          }
           if (event.request.mode === 'navigate') {
             return caches.match('/');
           }
         });
-    })
+      })
   );
 });

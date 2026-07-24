@@ -72,6 +72,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [roomRole, setRoomRole] = useState<"host" | "viewer" | null>(null);
   const [courtName, setCourtName] = useState<string | null>(null);
   const [recentCourts, setRecentCourts] = useState<{ code: string; name: string }[]>([]);
+  const [isRoomCreator, setIsRoomCreator] = useState<boolean>(false);
+  const [peerInstance, setPeerInstance] = useState<any>(null);
+  const [activeConnections, setActiveConnections] = useState<any[]>([]);
+  const [hostConnection, setHostConnection] = useState<any>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastServerUpdate, setLastServerUpdate] = useState<number>(0);
@@ -127,6 +131,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const savedRole = localStorage.getItem("shuttle_room_role");
       const savedCourtName = localStorage.getItem("shuttle_court_name");
       const savedRecents = localStorage.getItem("shuttle_recent_courts");
+      const savedIsCreator = localStorage.getItem("shuttle_is_creator");
 
       let initialPlayers: Player[] = [];
 
@@ -187,6 +192,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       if (savedVoice) setVoiceEnabled(savedVoice === "true");
       if (savedRole) setRoomRole(savedRole as any);
       if (savedCourtName) setCourtName(savedCourtName);
+      if (savedIsCreator) setIsRoomCreator(savedIsCreator === "true");
       
       if (savedRecents) {
         try {
@@ -200,6 +206,145 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // WebRTC Broadcast helper
+  const broadcastState = (updatedState: Partial<any>) => {
+    if (!isRoomCreator || activeConnections.length === 0) return;
+    
+    const fullState = {
+      type: "STATE_UPDATE",
+      players: updatedState.players !== undefined ? updatedState.players : players,
+      activePlayerIds: updatedState.activePlayerIds !== undefined ? updatedState.activePlayerIds : activePlayerIds,
+      queue: updatedState.queue !== undefined ? updatedState.queue : queue,
+      sessionMatches: updatedState.sessionMatches !== undefined ? updatedState.sessionMatches : sessionMatches,
+      activeMatch: updatedState.activeMatch !== undefined ? updatedState.activeMatch : activeMatch,
+      winnerCelebration: updatedState.winnerCelebration !== undefined ? updatedState.winnerCelebration : winnerCelebration
+    };
+
+    activeConnections.forEach(conn => {
+      if (conn.open) {
+        try {
+          conn.send(fullState);
+        } catch (e) {}
+      }
+    });
+  };
+
+  // WebRTC PeerJS Sync Hook
+  useEffect(() => {
+    if (typeof window === "undefined" || !roomCode) {
+      if (peerInstance) {
+        try {
+          peerInstance.destroy();
+        } catch (e) {}
+        setPeerInstance(null);
+        setActiveConnections([]);
+        setHostConnection(null);
+      }
+      return;
+    }
+
+    let activePeer: any = null;
+
+    const initPeer = async () => {
+      try {
+        const { default: Peer } = await import("peerjs");
+        
+        const peerId = isRoomCreator 
+          ? `shuttlescore-${roomCode.toUpperCase()}` 
+          : `shuttlescore-guest-${roomCode.toUpperCase()}-${Math.floor(Math.random() * 10000)}`;
+
+        const p = new Peer(peerId, { debug: 1 });
+        activePeer = p;
+        setPeerInstance(p);
+
+        p.on("open", (id) => {
+          console.log(`PeerJS WebRTC channel opened: ${id}`);
+          
+          if (!isRoomCreator) {
+            // Guests connect directly to the creator (host) peer channel
+            const conn = p.connect(`shuttlescore-${roomCode.toUpperCase()}`);
+            setHostConnection(conn);
+
+            conn.on("open", () => {
+              console.log("WebRTC Peer connection established with Host Court!");
+            });
+
+            conn.on("data", (data: any) => {
+              if (data && data.type === "STATE_UPDATE") {
+                if (data.players !== undefined) setPlayers(data.players);
+                if (data.activePlayerIds !== undefined) setActivePlayerIds(data.activePlayerIds);
+                if (data.queue !== undefined) setQueue(data.queue);
+                if (data.sessionMatches !== undefined) setSessionMatches(data.sessionMatches);
+                if (data.activeMatch !== undefined) setActiveMatch(data.activeMatch);
+                if (data.winnerCelebration !== undefined) setWinnerCelebration(data.winnerCelebration);
+              }
+            });
+
+            conn.on("close", () => {
+              console.log("WebRTC Connection closed by Host.");
+              setHostConnection(null);
+            });
+          }
+        });
+
+        if (isRoomCreator) {
+          p.on("connection", (conn) => {
+            console.log("Guest connected to our Court WebRTC session!");
+            
+            // Add peer connection to our broadcasts list
+            setActiveConnections(prev => {
+              if (prev.some(c => c.peer === conn.peer)) return prev;
+              return [...prev, conn];
+            });
+            
+            conn.on("open", () => {
+              // Push the current state to the guest immediately
+              conn.send({
+                type: "STATE_UPDATE",
+                players,
+                activePlayerIds,
+                queue,
+                sessionMatches,
+                activeMatch,
+                winnerCelebration
+              });
+            });
+
+            conn.on("data", (data: any) => {
+              if (data && data.type === "ACTION_TRIGGER") {
+                // Execute action locally on the host
+                if (data.action === "rally") handleRallyWinner(data.side);
+                if (data.action === "undo") handleUndoAction();
+                if (data.action === "redo") handleRedoAction();
+                if (data.action === "swap") handleSwapSidesAction();
+              }
+            });
+
+            conn.on("close", () => {
+              setActiveConnections(prev => prev.filter(c => c.peer !== conn.peer));
+            });
+          });
+        }
+
+        p.on("error", (err) => {
+          console.error("PeerJS signaling error:", err);
+        });
+      } catch (err) {
+        console.error("Failed to initialize PeerJS WebRTC:", err);
+      }
+    };
+
+    initPeer();
+
+    return () => {
+      if (activePeer) {
+        try {
+          activePeer.destroy();
+        } catch (e) {}
+      }
+    };
+  }, [roomCode, isRoomCreator]);
+
   // 3. Room sync polling & pushes
   useEffect(() => {
     if (!roomCode) return;
@@ -208,7 +353,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     const poll = async () => {
       try {
-        const res = await fetch(`/api/room/${roomCode}`);
+        const res = await fetch(`/api/room/${roomCode}`, { cache: "no-store" });
         if (!res.ok) {
           if (res.status === 404) {
             setSyncError("Room expired or connection lost.");
@@ -248,6 +393,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   const syncState = async (delta: Partial<any>) => {
     if (!roomCode || roomRole === "viewer") return;
+    // Broadcast immediately to WebRTC connections for instant 0ms delay sync
+    broadcastState(delta);
     try {
       await fetch(`/api/room/${roomCode}`, {
         method: "POST",
@@ -280,10 +427,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setRoomCode(data.code);
         setRoomRole("host");
         setCourtName(courtNameInput);
+        setIsRoomCreator(true);
         setLastServerUpdate(data.state.lastUpdated);
         localStorage.setItem("shuttle_room_code", data.code);
         localStorage.setItem("shuttle_room_role", "host");
         localStorage.setItem("shuttle_court_name", courtNameInput);
+        localStorage.setItem("shuttle_is_creator", "true");
         localStorage.setItem("shuttle_last_server_update", String(data.state.lastUpdated));
         
         // Add to recent list
@@ -314,11 +463,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
-      const res = await fetch(`/api/room/${cleanCode}`);
+      const res = await fetch(`/api/room/${cleanCode}`, { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
         setRoomCode(cleanCode);
         setRoomRole("host");
+        setIsRoomCreator(false);
         const resolvedName = data.courtName || `Court ${cleanCode}`;
         setCourtName(resolvedName);
         setPlayers(data.players);
@@ -332,6 +482,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem("shuttle_room_code", cleanCode);
         localStorage.setItem("shuttle_room_role", "host");
         localStorage.setItem("shuttle_court_name", resolvedName);
+        localStorage.setItem("shuttle_is_creator", "false");
         localStorage.setItem("shuttle_players", JSON.stringify(data.players));
         localStorage.setItem("shuttle_active_player_ids", JSON.stringify(data.activePlayerIds));
         localStorage.setItem("shuttle_queue", JSON.stringify(data.queue));
@@ -356,9 +507,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setRoomCode(null);
       setRoomRole(null);
       setCourtName(null);
+      setIsRoomCreator(false);
       localStorage.removeItem("shuttle_room_code");
       localStorage.removeItem("shuttle_room_role");
       localStorage.removeItem("shuttle_court_name");
+      localStorage.removeItem("shuttle_is_creator");
       localStorage.removeItem("shuttle_last_server_update");
     }
   };
@@ -458,6 +611,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const handleRallyWinner = (winnerSide: Side) => {
     if (roomCode && roomRole === "viewer") return;
     if (!activeMatch) return;
+
+    // WebRTC connection action intercept
+    if (!isRoomCreator && hostConnection && hostConnection.open) {
+      hostConnection.send({ type: "ACTION_TRIGGER", action: "rally", side: winnerSide });
+      return;
+    }
+
     const serviceOver = activeMatch.servingSide !== winnerSide;
     const updated = handleRally(activeMatch, winnerSide, false, null);
     setActiveMatch(updated);
@@ -590,6 +750,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const handleUndoAction = () => {
     if (roomCode && roomRole === "viewer") return;
     if (!activeMatch) return;
+
+    if (!isRoomCreator && hostConnection && hostConnection.open) {
+      hostConnection.send({ type: "ACTION_TRIGGER", action: "undo" });
+      return;
+    }
+
     const reverted = handleUndo(activeMatch);
     setActiveMatch(reverted);
     syncState({ activeMatch: reverted });
@@ -602,6 +768,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const handleRedoAction = () => {
     if (roomCode && roomRole === "viewer") return;
     if (!activeMatch) return;
+
+    if (!isRoomCreator && hostConnection && hostConnection.open) {
+      hostConnection.send({ type: "ACTION_TRIGGER", action: "redo" });
+      return;
+    }
+
     const restored = handleRedo(activeMatch);
     setActiveMatch(restored);
     syncState({ activeMatch: restored });
@@ -614,6 +786,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const handleSwapSidesAction = () => {
     if (roomCode && roomRole === "viewer") return;
     if (!activeMatch) return;
+
+    if (!isRoomCreator && hostConnection && hostConnection.open) {
+      hostConnection.send({ type: "ACTION_TRIGGER", action: "swap" });
+      return;
+    }
+
     const swapped = swapSides(activeMatch);
     setActiveMatch(swapped);
     syncState({ activeMatch: swapped });
