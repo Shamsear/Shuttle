@@ -39,13 +39,24 @@ export async function POST(request: Request) {
       attempts++;
     } while (rooms.has(code) && attempts < 100);
 
+    const defaultPlayers = [
+      { id: "1", name: "Alice", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
+      { id: "2", name: "Bob", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
+      { id: "3", name: "Charlie", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
+      { id: "4", name: "David", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
+    ];
+
+    const initialPlayers = (body.players && body.players.length > 0) ? body.players : defaultPlayers;
+    const initialActivePlayerIds = (body.activePlayerIds && body.activePlayerIds.length > 0) ? body.activePlayerIds : initialPlayers.map((p: any) => p.id);
+    const initialQueue = (body.queue && body.queue.length > 0) ? body.queue : initialPlayers;
+
     const roomState: RoomState = {
       code,
       courtName: body.courtName || `Court ${code}`,
       lastUpdated: Date.now(),
-      players: body.players || [],
-      activePlayerIds: body.activePlayerIds || [],
-      queue: body.queue || [],
+      players: initialPlayers,
+      activePlayerIds: initialActivePlayerIds,
+      queue: initialQueue,
       sessionMatches: body.sessionMatches || [],
       activeMatch: body.activeMatch || null,
       winnerCelebration: body.winnerCelebration || null,

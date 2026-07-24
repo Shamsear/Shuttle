@@ -116,61 +116,87 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   // 2. Load from storage on mount
   useEffect(() => {
-    const savedPlayers = localStorage.getItem("shuttle_players");
-    const savedActiveIds = localStorage.getItem("shuttle_active_player_ids");
-    const savedMatches = localStorage.getItem("shuttle_session_matches");
-    const savedQueue = localStorage.getItem("shuttle_queue");
-    const savedRoomCode = localStorage.getItem("shuttle_room_code");
-    const savedLastUpdate = localStorage.getItem("shuttle_last_server_update");
-    const savedVoice = localStorage.getItem("shuttle_voice_enabled");
-    const savedRole = localStorage.getItem("shuttle_room_role");
-    const savedCourtName = localStorage.getItem("shuttle_court_name");
+    try {
+      const savedPlayers = localStorage.getItem("shuttle_players");
+      const savedActiveIds = localStorage.getItem("shuttle_active_player_ids");
+      const savedMatches = localStorage.getItem("shuttle_session_matches");
+      const savedQueue = localStorage.getItem("shuttle_queue");
+      const savedRoomCode = localStorage.getItem("shuttle_room_code");
+      const savedLastUpdate = localStorage.getItem("shuttle_last_server_update");
+      const savedVoice = localStorage.getItem("shuttle_voice_enabled");
+      const savedRole = localStorage.getItem("shuttle_room_role");
+      const savedCourtName = localStorage.getItem("shuttle_court_name");
+      const savedRecents = localStorage.getItem("shuttle_recent_courts");
 
-    let initialPlayers: Player[] = [];
+      let initialPlayers: Player[] = [];
 
-    if (savedPlayers) {
-      initialPlayers = JSON.parse(savedPlayers);
-      setPlayers(initialPlayers);
-    } else {
-      const defaultPlayers: Player[] = [
-        { id: "1", name: "Alice", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-        { id: "2", name: "Bob", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-        { id: "3", name: "Charlie", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-        { id: "4", name: "David", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-      ];
-      initialPlayers = defaultPlayers;
-      setPlayers(defaultPlayers);
-      localStorage.setItem("shuttle_players", JSON.stringify(defaultPlayers));
-    }
+      if (savedPlayers) {
+        try {
+          initialPlayers = JSON.parse(savedPlayers);
+          setPlayers(initialPlayers);
+        } catch (e) {
+          localStorage.removeItem("shuttle_players");
+        }
+      }
 
-    if (savedActiveIds) {
-      setActivePlayerIds(JSON.parse(savedActiveIds));
-    } else {
-      const defaultActiveIds = initialPlayers.map((p) => p.id);
-      setActivePlayerIds(defaultActiveIds);
-      localStorage.setItem("shuttle_active_player_ids", JSON.stringify(defaultActiveIds));
-    }
+      if (initialPlayers.length === 0) {
+        const defaultPlayers: Player[] = [
+          { id: "1", name: "Alice", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
+          { id: "2", name: "Bob", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
+          { id: "3", name: "Charlie", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
+          { id: "4", name: "David", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
+        ];
+        initialPlayers = defaultPlayers;
+        setPlayers(defaultPlayers);
+        localStorage.setItem("shuttle_players", JSON.stringify(defaultPlayers));
+      }
 
-    if (savedMatches) setSessionMatches(JSON.parse(savedMatches));
-    
-    if (savedQueue) {
-      setQueue(JSON.parse(savedQueue));
-    } else {
-      setQueue(initialPlayers);
-      localStorage.setItem("shuttle_queue", JSON.stringify(initialPlayers));
-    }
+      if (savedActiveIds) {
+        try {
+          setActivePlayerIds(JSON.parse(savedActiveIds));
+        } catch (e) {
+          localStorage.removeItem("shuttle_active_player_ids");
+        }
+      } else {
+        const defaultActiveIds = initialPlayers.map((p) => p.id);
+        setActivePlayerIds(defaultActiveIds);
+        localStorage.setItem("shuttle_active_player_ids", JSON.stringify(defaultActiveIds));
+      }
 
-    if (savedRoomCode) setRoomCode(savedRoomCode);
-    if (savedLastUpdate) setLastServerUpdate(Number(savedLastUpdate));
-    if (savedVoice) setVoiceEnabled(savedVoice === "true");
-    if (savedRole) setRoomRole(savedRole as any);
-    if (savedCourtName) setCourtName(savedCourtName);
-    
-    const savedRecents = localStorage.getItem("shuttle_recent_courts");
-    if (savedRecents) {
-      try {
-        setRecentCourts(JSON.parse(savedRecents));
-      } catch (err) {}
+      if (savedMatches) {
+        try {
+          setSessionMatches(JSON.parse(savedMatches));
+        } catch (e) {
+          localStorage.removeItem("shuttle_session_matches");
+        }
+      }
+      
+      if (savedQueue) {
+        try {
+          setQueue(JSON.parse(savedQueue));
+        } catch (e) {
+          localStorage.removeItem("shuttle_queue");
+        }
+      } else {
+        setQueue(initialPlayers);
+        localStorage.setItem("shuttle_queue", JSON.stringify(initialPlayers));
+      }
+
+      if (savedRoomCode) setRoomCode(savedRoomCode);
+      if (savedLastUpdate) setLastServerUpdate(Number(savedLastUpdate));
+      if (savedVoice) setVoiceEnabled(savedVoice === "true");
+      if (savedRole) setRoomRole(savedRole as any);
+      if (savedCourtName) setCourtName(savedCourtName);
+      
+      if (savedRecents) {
+        try {
+          setRecentCourts(JSON.parse(savedRecents));
+        } catch (err) {
+          localStorage.removeItem("shuttle_recent_courts");
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load local storage:", error);
     }
   }, []);
 
