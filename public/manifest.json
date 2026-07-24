@@ -1,0 +1,18 @@
+{
+  "name": "Shuttle Score Tracker",
+  "short_name": "ShuttleScore",
+  "description": "Premium mobile score and court position tracker for badminton matches.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}
