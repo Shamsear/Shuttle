@@ -82,22 +82,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [joinInput, setJoinInput] = useState<string>("");
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(false);
 
-  // Helper to resolve localStorage key names based on active room code
-  const getStorageKey = (base: string, customCode?: string | null) => {
-    const code = customCode !== undefined ? customCode : roomCode;
-    return code ? `shuttle_${code.toUpperCase()}_${base}` : `shuttle_local_${base}`;
-  };
-
   // 1. Storage helpers
   const savePlayersToStorage = (updated: Player[]) => {
     setPlayers(updated);
-    localStorage.setItem(getStorageKey("players"), JSON.stringify(updated));
     syncState({ players: updated });
   };
 
   const saveActivePlayerIdsToStorage = (updated: string[]) => {
     setActivePlayerIds(updated);
-    localStorage.setItem(getStorageKey("active_player_ids"), JSON.stringify(updated));
     // Re-sync queue to match active roster
     const activePlayers = players.filter((p) => updated.includes(p.id));
     const nextQueue = activePlayers.filter((p) => {
@@ -109,94 +101,42 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       }
       return true;
     });
-    saveQueueToStorage(nextQueue);
+    setQueue(nextQueue);
     syncState({ activePlayerIds: updated, queue: nextQueue });
   };
 
   const saveMatchesToStorage = (updated: any[]) => {
     setSessionMatches(updated);
-    localStorage.setItem(getStorageKey("session_matches"), JSON.stringify(updated));
     syncState({ sessionMatches: updated });
   };
 
   const saveQueueToStorage = (updated: Player[]) => {
     setQueue(updated);
-    localStorage.setItem(getStorageKey("queue"), JSON.stringify(updated));
   };
 
   // 2. Load from storage on mount
   useEffect(() => {
     try {
       const savedRoomCode = localStorage.getItem("shuttle_room_code");
-      const keyPrefix = savedRoomCode ? `shuttle_${savedRoomCode.toUpperCase()}_` : "shuttle_local_";
-
-      const savedPlayers = localStorage.getItem(`${keyPrefix}players`);
-      const savedActiveIds = localStorage.getItem(`${keyPrefix}active_player_ids`);
-      const savedMatches = localStorage.getItem(`${keyPrefix}session_matches`);
-      const savedQueue = localStorage.getItem(`${keyPrefix}queue`);
       const savedVoice = localStorage.getItem("shuttle_voice_enabled");
       const savedRole = localStorage.getItem("shuttle_room_role");
       const savedCourtName = localStorage.getItem("shuttle_court_name");
       const savedRecents = localStorage.getItem("shuttle_recent_courts");
       const savedIsCreator = localStorage.getItem("shuttle_is_creator");
 
-      let initialPlayers: Player[] = [];
-
-      if (savedPlayers) {
-        try {
-          initialPlayers = JSON.parse(savedPlayers);
-          setPlayers(initialPlayers);
-        } catch (e) {
-          localStorage.removeItem(`${keyPrefix}players`);
-        }
-      }
-
-      if (initialPlayers.length === 0) {
-        const defaultPlayers: Player[] = [
-          { id: "1", name: "Alice", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-          { id: "2", name: "Bob", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-          { id: "3", name: "Charlie", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-          { id: "4", name: "David", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-        ];
-        initialPlayers = defaultPlayers;
-        setPlayers(defaultPlayers);
-        localStorage.setItem(`${keyPrefix}players`, JSON.stringify(defaultPlayers));
-      }
-
-      if (savedActiveIds) {
-        try {
-          setActivePlayerIds(JSON.parse(savedActiveIds));
-        } catch (e) {
-          localStorage.removeItem(`${keyPrefix}active_player_ids`);
-        }
-      } else {
-        const defaultActiveIds = initialPlayers.map((p) => p.id);
-        setActivePlayerIds(defaultActiveIds);
-        localStorage.setItem(`${keyPrefix}active_player_ids`, JSON.stringify(defaultActiveIds));
-      }
-
-      if (savedMatches) {
-        try {
-          setSessionMatches(JSON.parse(savedMatches));
-        } catch (e) {
-          localStorage.removeItem(`${keyPrefix}session_matches`);
-        }
-      }
-      
-      if (savedQueue) {
-        try {
-          setQueue(JSON.parse(savedQueue));
-        } catch (e) {
-          localStorage.removeItem(`${keyPrefix}queue`);
-        }
-      } else {
-        setQueue(initialPlayers);
-        localStorage.setItem(`${keyPrefix}queue`, JSON.stringify(initialPlayers));
-      }
+      // Initialize default players in memory
+      const defaultPlayers: Player[] = [
+        { id: "1", name: "Alice", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
+        { id: "2", name: "Bob", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
+        { id: "3", name: "Charlie", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
+        { id: "4", name: "David", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
+      ];
+      setPlayers(defaultPlayers);
+      setActivePlayerIds(defaultPlayers.map((p) => p.id));
+      setQueue(defaultPlayers);
 
       if (savedRoomCode) setRoomCode(savedRoomCode);
-      // Explicitly initialize lastServerUpdate to 0 on mount to force initial server DB hydration
-      setLastServerUpdate(0);
+      setLastServerUpdate(0); // Force initial database poll
       
       if (savedVoice) setVoiceEnabled(savedVoice === "true");
       if (savedRole) setRoomRole(savedRole as any);
@@ -205,7 +145,27 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       
       if (savedRecents) {
         try {
-          setRecentCourts(JSON.parse(savedRecents));
+          const parsed = JSON.parse(savedRecents);
+          setRecentCourts(parsed);
+          
+          // Asynchronously verify that each room still exists on the server
+          (async () => {
+            const validated: any[] = [];
+            for (const c of parsed) {
+              try {
+                const res = await fetch(`/api/room/${c.code}`, { cache: "no-store" });
+                if (res.ok) {
+                  validated.push(c);
+                }
+              } catch (e) {
+                validated.push(c); // keep it on network errors to prevent false-positives
+              }
+            }
+            if (validated.length !== parsed.length) {
+              setRecentCourts(validated);
+              localStorage.setItem("shuttle_recent_courts", JSON.stringify(validated));
+            }
+          })();
         } catch (err) {
           localStorage.removeItem("shuttle_recent_courts");
         }
@@ -380,12 +340,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           setSessionMatches(data.sessionMatches);
           setActiveMatch(data.activeMatch);
           setWinnerCelebration(data.winnerCelebration);
-          
-          localStorage.setItem(getStorageKey("players"), JSON.stringify(data.players));
-          localStorage.setItem(getStorageKey("active_player_ids"), JSON.stringify(data.activePlayerIds));
-          localStorage.setItem(getStorageKey("queue"), JSON.stringify(data.queue));
-          localStorage.setItem(getStorageKey("session_matches"), JSON.stringify(data.sessionMatches));
-          localStorage.setItem(getStorageKey("last_server_update"), String(data.lastUpdated));
         }
       } catch (err) {
         console.error("Failed to poll room state:", err);
@@ -442,7 +396,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem("shuttle_room_role", "host");
         localStorage.setItem("shuttle_court_name", courtNameInput);
         localStorage.setItem("shuttle_is_creator", "true");
-        localStorage.setItem(getStorageKey("last_server_update", data.code), String(data.state.lastUpdated));
         
         // Add to recent list
         addToRecentCourts(data.code, courtNameInput);
@@ -495,11 +448,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem("shuttle_room_role", "host");
         localStorage.setItem("shuttle_court_name", resolvedName);
         localStorage.setItem("shuttle_is_creator", "false");
-        localStorage.setItem(getStorageKey("players", cleanCode), JSON.stringify(data.players));
-        localStorage.setItem(getStorageKey("active_player_ids", cleanCode), JSON.stringify(data.activePlayerIds));
-        localStorage.setItem(getStorageKey("queue", cleanCode), JSON.stringify(data.queue));
-        localStorage.setItem(getStorageKey("session_matches", cleanCode), JSON.stringify(data.sessionMatches));
-        localStorage.setItem(getStorageKey("last_server_update", cleanCode), String(data.lastUpdated));
         setJoinInput("");
 
         // Add to recent list
