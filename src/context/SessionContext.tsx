@@ -126,16 +126,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const savedRecents = localStorage.getItem("shuttle_recent_courts");
       const savedIsCreator = localStorage.getItem("shuttle_is_creator");
 
-      // Initialize default players in memory
-      const defaultPlayers: Player[] = [
-        { id: "1", name: "Alice", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-        { id: "2", name: "Bob", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-        { id: "3", name: "Charlie", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-        { id: "4", name: "David", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-      ];
-      setPlayers(defaultPlayers);
-      setActivePlayerIds(defaultPlayers.map((p) => p.id));
-      setQueue(defaultPlayers);
+      // Initialize empty arrays on load
+      setPlayers([]);
+      setActivePlayerIds([]);
+      setQueue([]);
 
       if (savedRoomCode) setRoomCode(savedRoomCode);
       setLastServerUpdate(0); // Force initial database poll

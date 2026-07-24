@@ -192,6 +192,7 @@ export async function getAllRoomsFromDb() {
 }
 
 // Save room state to Postgres using normalized entity tables
+// Save room state to Postgres using normalized entity tables with high-performance jsonb batching
 export async function saveRoomToDb(code: string, state: any) {
   const sql = getDb();
   if (!sql) return false;
@@ -201,7 +202,7 @@ export async function saveRoomToDb(code: string, state: any) {
     const cleanCode = code.toUpperCase();
     const lastUpdated = Date.now();
 
-    // 1. Upsert base Room
+    // Step 1: Upsert base Room first to avoid Foreign Key constraint violations on children
     if (state.courtName) {
       await sql`
         INSERT INTO rooms (code, court_name, last_updated)
@@ -215,68 +216,107 @@ export async function saveRoomToDb(code: string, state: any) {
       `;
     }
 
-    // 2. Upsert Players
+    // Step 2: Execute all child table upserts in parallel (saving database round-trips)
+    const updates: Promise<any>[] = [];
+
+    // A. Players batch update
     if (state.players) {
-      await sql`DELETE FROM players WHERE room_code = ${cleanCode}`;
-      for (const p of state.players) {
-        await sql`
+      const playerRecords = state.players.map((p: any) => ({
+        id: p.id,
+        room_code: cleanCode,
+        name: p.name,
+        wins: p.stats.wins,
+        losses: p.stats.losses,
+        errors: p.stats.errors,
+        points: p.stats.points
+      }));
+
+      updates.push(
+        sql`
+          DELETE FROM players WHERE room_code = ${cleanCode};
           INSERT INTO players (id, room_code, name, wins, losses, errors, points)
-          VALUES (${p.id}, ${cleanCode}, ${p.name}, ${p.stats.wins}, ${p.stats.losses}, ${p.stats.errors}, ${p.stats.points});
-        `;
-      }
+          SELECT id, room_code, name, wins, losses, errors, points
+          FROM jsonb_to_recordset(${JSON.stringify(playerRecords)}::jsonb)
+          AS x(id VARCHAR, room_code VARCHAR, name VARCHAR, wins INT, losses INT, errors INT, points INT);
+        `
+      );
     }
 
-    // 3. Upsert Queue
+    // B. Queue batch update
     if (state.queue) {
-      await sql`DELETE FROM queue WHERE room_code = ${cleanCode}`;
-      for (let i = 0; i < state.queue.length; i++) {
-        const q = state.queue[i];
-        await sql`
+      const queueRecords = state.queue.map((q: any, i: number) => ({
+        room_code: cleanCode,
+        player_id: q.id,
+        position: i
+      }));
+
+      updates.push(
+        sql`
+          DELETE FROM queue WHERE room_code = ${cleanCode};
           INSERT INTO queue (room_code, player_id, position)
-          VALUES (${cleanCode}, ${q.id}, ${i});
-        `;
-      }
+          SELECT room_code, player_id, position
+          FROM jsonb_to_recordset(${JSON.stringify(queueRecords)}::jsonb)
+          AS x(room_code VARCHAR, player_id VARCHAR, position INT);
+        `
+      );
     }
 
-    // 4. Upsert Matches
+    // C. Matches batch update
     if (state.sessionMatches) {
       const matchIds = state.sessionMatches.map((m: any) => m.id);
-      if (matchIds.length > 0) {
-        // Query to format matchIds safely
-        await sql`DELETE FROM matches WHERE room_code = ${cleanCode} AND id NOT IN (${matchIds})`;
-      } else {
-        await sql`DELETE FROM matches WHERE room_code = ${cleanCode}`;
-      }
+      const matchRecords = state.sessionMatches.map((m: any) => ({
+        id: m.id,
+        room_code: cleanCode,
+        date: m.date,
+        mode: m.mode,
+        left_players: m.leftPlayers,
+        right_players: m.rightPlayers,
+        left_score: m.leftScore,
+        right_score: m.rightScore,
+        winner_side: m.winnerSide
+      }));
 
-      for (const m of state.sessionMatches) {
-        await sql`
-          INSERT INTO matches (id, room_code, date, mode, left_players, right_players, left_score, right_score, winner_side)
-          VALUES (${m.id}, ${cleanCode}, ${m.date}, ${m.mode}, ${JSON.stringify(m.leftPlayers)}, ${JSON.stringify(m.rightPlayers)}, ${m.leftScore}, ${m.rightScore}, ${m.winnerSide})
-          ON CONFLICT (id) DO UPDATE
-          SET date = EXCLUDED.date,
-              mode = EXCLUDED.mode,
-              left_players = EXCLUDED.left_players,
-              right_players = EXCLUDED.right_players,
-              left_score = EXCLUDED.left_score,
-              right_score = EXCLUDED.right_score,
-              winner_side = EXCLUDED.winner_side;
-        `;
+      if (matchIds.length > 0) {
+        updates.push(
+          sql`
+            DELETE FROM matches WHERE room_code = ${cleanCode} AND id NOT IN (${matchIds});
+            INSERT INTO matches (id, room_code, date, mode, left_players, right_players, left_score, right_score, winner_side)
+            SELECT id, room_code, date, mode, left_players, right_players, left_score, right_score, winner_side
+            FROM jsonb_to_recordset(${JSON.stringify(matchRecords)}::jsonb)
+            AS x(id VARCHAR, room_code VARCHAR, date VARCHAR, mode VARCHAR, left_players JSONB, right_players JSONB, left_score INT, right_score INT, winner_side VARCHAR)
+            ON CONFLICT (id) DO UPDATE
+            SET date = EXCLUDED.date,
+                mode = EXCLUDED.mode,
+                left_players = EXCLUDED.left_players,
+                right_players = EXCLUDED.right_players,
+                left_score = EXCLUDED.left_score,
+                right_score = EXCLUDED.right_score,
+                winner_side = EXCLUDED.winner_side;
+          `
+        );
+      } else {
+        updates.push(sql`DELETE FROM matches WHERE room_code = ${cleanCode};`);
       }
     }
 
-    // 5. Upsert Active Match & Winner Celebration
+    // D. Active Match update
     if (state.activeMatch !== undefined || state.winnerCelebration !== undefined) {
       const activeMatchVal = state.activeMatch ? JSON.stringify(state.activeMatch) : null;
       const celebrationVal = state.winnerCelebration ? JSON.stringify(state.winnerCelebration) : null;
 
-      await sql`
-        INSERT INTO active_matches (room_code, active_match, winner_celebration)
-        VALUES (${cleanCode}, ${activeMatchVal}, ${celebrationVal})
-        ON CONFLICT (room_code) DO UPDATE
-        SET active_match = COALESCE(${activeMatchVal}, active_matches.active_match),
-            winner_celebration = COALESCE(${celebrationVal}, active_matches.winner_celebration);
-      `;
+      updates.push(
+        sql`
+          INSERT INTO active_matches (room_code, active_match, winner_celebration)
+          VALUES (${cleanCode}, ${activeMatchVal}, ${celebrationVal})
+          ON CONFLICT (room_code) DO UPDATE
+          SET active_match = COALESCE(${activeMatchVal}, active_matches.active_match),
+              winner_celebration = COALESCE(${celebrationVal}, active_matches.winner_celebration);
+        `
+      );
     }
+
+    // Await all batch updates in parallel
+    await Promise.all(updates);
 
     return true;
   } catch (error) {
