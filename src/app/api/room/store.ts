@@ -1,5 +1,6 @@
 export interface RoomState {
   code: string;
+  courtName?: string;
   lastUpdated: number;
   players: any[];
   activePlayerIds: string[];

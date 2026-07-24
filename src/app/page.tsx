@@ -1,1164 +1,500 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { 
-  Player
-} from "../components/PlayerPool";
-import { 
-  MatchState, 
-  Side, 
-  initializeMatch, 
-  handleRally, 
-  handleUndo, 
-  handleRedo,
-  swapSides 
-} from "../utils/badmintonEngine";
-import Scoreboard from "../components/Scoreboard";
-import MatchSetup from "../components/MatchSetup";
-import PlayerPool from "../components/PlayerPool";
-import { announceScore, triggerHaptic } from "../utils/refereeDevice";
-
-// Inline SVG Shuttlecock Logo (No Emojis)
-const LogoShuttleIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle" }}>
-    <path d="M12 2v20M5 12h14M8 7l4-5 4 5" />
-    <path d="M6 18c0-3.3 2.7-6 6-6s6 2.7 6 6" opacity="0.85" />
-  </svg>
-);
-
-// Inline SVG Trophy Icon (No Emojis)
-const TrophyIcon = () => (
-  <svg className="victory-trophy-svg" viewBox="0 0 24 24" fill="none" stroke="var(--color-serve)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
-    <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
-    <path d="M4 22h16" />
-    <path d="M10 14.66V17c0 .55-.45 1-1 1H4v2h16v-2h-5c-.55 0-1-.45-1-1v-2.34" />
-    <path d="M12 2a7 7 0 0 0-7 7v4.66a7 7 0 0 0 14 0V9a7 7 0 0 0-7-7z" fill="rgba(245, 158, 11, 0.15)" />
-  </svg>
-);
-
-type Screen = "home" | "players" | "setup" | "scoreboard";
-
-interface MatchRecord {
-  id: string;
-  date: string;
-  mode: "singles" | "doubles";
-  leftPlayers: string[];
-  rightPlayers: string[];
-  leftScore: number;
-  rightScore: number;
-  winnerSide: Side;
-}
-
-export default function Home() {
-  const [activeScreen, setActiveScreen] = useState<Screen>("home");
-  
-  // Touch swipe states
-  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
-  const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
-  
-  // Players Database (lifetime records)
-  const [players, setPlayers] = useState<Player[]>([]);
-  
-  // Active players today
-  const [activePlayerIds, setActivePlayerIds] = useState<string[]>([]);
-  
-  // Queue of players waiting to play today
-  const [queue, setQueue] = useState<Player[]>([]);
-  
-  // Today's matches
-  const [sessionMatches, setSessionMatches] = useState<MatchRecord[]>([]);
-
-  // Active match scoring state
-  const [activeMatch, setActiveMatch] = useState<MatchState | null>(null);
-  
-  // Winner popup state
-  const [winnerCelebration, setWinnerCelebration] = useState<{
-    winnerSide: Side;
-    winnerNames: string;
-  } | null>(null);
-
-  // Room sync states
-  const [roomCode, setRoomCode] = useState<string | null>(null);
-  const [roomRole, setRoomRole] = useState<"host" | "viewer" | null>(null);
-  const [isSyncing, setIsSyncing] = useState<boolean>(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [lastServerUpdate, setLastServerUpdate] = useState<number>(0);
-  const [joinInput, setJoinInput] = useState<string>("");
-
-  // Voice Referee state
-  const [voiceEnabled, setVoiceEnabled] = useState<boolean>(false);
-
-  // Load state from localStorage on mount
-  useEffect(() => {
-    /* eslint-disable react-hooks/set-state-in-effect */
-    const savedPlayers = localStorage.getItem("shuttle_players");
-    const savedActiveIds = localStorage.getItem("shuttle_active_player_ids");
-    const savedMatches = localStorage.getItem("shuttle_session_matches");
-    const savedQueue = localStorage.getItem("shuttle_queue");
-    const savedRoomCode = localStorage.getItem("shuttle_room_code");
-    const savedLastUpdate = localStorage.getItem("shuttle_last_server_update");
-    const savedVoice = localStorage.getItem("shuttle_voice_enabled");
-    const savedRole = localStorage.getItem("shuttle_room_role");
-
-    let initialPlayers: Player[] = [];
-
-    if (savedPlayers) {
-      initialPlayers = JSON.parse(savedPlayers);
-      setPlayers(initialPlayers);
-    } else {
-      // Seed default players if empty
-      const defaultPlayers: Player[] = [
-        { id: "1", name: "Alice", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-        { id: "2", name: "Bob", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-        { id: "3", name: "Charlie", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-        { id: "4", name: "David", stats: { wins: 0, losses: 0, errors: 0, points: 0 } },
-      ];
-      initialPlayers = defaultPlayers;
-      setPlayers(defaultPlayers);
-      localStorage.setItem("shuttle_players", JSON.stringify(defaultPlayers));
-    }
-
-    if (savedActiveIds) {
-      setActivePlayerIds(JSON.parse(savedActiveIds));
-    } else {
-      const defaultActiveIds = initialPlayers.map((p) => p.id);
-      setActivePlayerIds(defaultActiveIds);
-      localStorage.setItem("shuttle_active_player_ids", JSON.stringify(defaultActiveIds));
-    }
-
-    if (savedMatches) setSessionMatches(JSON.parse(savedMatches));
-    
-    if (savedQueue) {
-      setQueue(JSON.parse(savedQueue));
-    } else {
-      setQueue(initialPlayers);
-      localStorage.setItem("shuttle_queue", JSON.stringify(initialPlayers));
-    }
-
-    if (savedRoomCode) setRoomCode(savedRoomCode);
-    if (savedLastUpdate) setLastServerUpdate(Number(savedLastUpdate));
-    if (savedVoice) setVoiceEnabled(savedVoice === "true");
-    if (savedRole) setRoomRole(savedRole as any);
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, []);
-
-  // Touch Swipe Handlers for mobile gestures (Swipe Right to go back or Undo)
-  const handleTouchStart = (e: React.TouchEvent) => {
-    setTouchEnd(null);
-    setTouchStart({
-      x: e.targetTouches[0].clientX,
-      y: e.targetTouches[0].clientY,
-    });
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    setTouchEnd({
-      x: e.targetTouches[0].clientX,
-      y: e.targetTouches[0].clientY,
-    });
-  };
-
-  const handleTouchEnd = () => {
-    if (!touchStart || !touchEnd) return;
-    const distanceX = touchEnd.x - touchStart.x;
-    const distanceY = touchEnd.y - touchStart.y;
-    
-    // Check if horizontal swipe right is clear (threshold of 80px, height range < 60px)
-    if (distanceX > 80 && Math.abs(distanceY) < 60) {
-      if (activeScreen === "players" || activeScreen === "setup") {
-        setActiveScreen("home");
-      } else if (activeScreen === "scoreboard") {
-        handleUndoAction();
-      }
-    }
-
-    // Check if horizontal swipe left is clear (threshold of -80px, height range < 60px)
-    if (distanceX < -80 && Math.abs(distanceY) < 60) {
-      if (activeScreen === "scoreboard") {
-        handleRedoAction();
-      }
-    }
-  };
-
-  // 1. Poll room updates if connected
-  useEffect(() => {
-    if (!roomCode) return;
-    
-    setIsSyncing(true);
-    setSyncError(null);
-
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/room/${roomCode}`);
-        if (!res.ok) {
-          if (res.status === 404) {
-            setSyncError("Invite room not found. Disconnecting...");
-            setRoomCode(null);
-            localStorage.removeItem("shuttle_room_code");
-          }
-          return;
-        }
-        
-        const data = await res.json();
-        
-        // Update local states if server has newer updates
-        if (data.lastUpdated > lastServerUpdate) {
-          setPlayers(data.players);
-          setActivePlayerIds(data.activePlayerIds);
-          setQueue(data.queue);
-          setSessionMatches(data.sessionMatches);
-          setActiveMatch(data.activeMatch);
-          setWinnerCelebration(data.winnerCelebration);
-          setActiveScreen(data.activeScreen);
-          setLastServerUpdate(data.lastUpdated);
-
-          localStorage.setItem("shuttle_players", JSON.stringify(data.players));
-          localStorage.setItem("shuttle_active_player_ids", JSON.stringify(data.activePlayerIds));
-          localStorage.setItem("shuttle_queue", JSON.stringify(data.queue));
-          localStorage.setItem("shuttle_session_matches", JSON.stringify(data.sessionMatches));
-          localStorage.setItem("shuttle_last_server_update", String(data.lastUpdated));
-        }
-      } catch (err) {
-        console.error("Cloud sync poll error:", err);
-      }
-    };
-
-    poll();
-    const interval = setInterval(poll, 1500);
-    return () => clearInterval(interval);
-  }, [roomCode, lastServerUpdate]);
-
-  // Pushes changes to the server
-  const syncState = async (mutations: {
-    players?: Player[];
-    activePlayerIds?: string[];
-    queue?: Player[];
-    sessionMatches?: MatchRecord[];
-    activeMatch?: MatchState | null;
-    winnerCelebration?: any | null;
-    activeScreen?: Screen;
-  }) => {
-    if (!roomCode) return;
-    try {
-      const res = await fetch(`/api/room/${roomCode}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mutations),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setLastServerUpdate(data.lastUpdated);
-        localStorage.setItem("shuttle_last_server_update", String(data.lastUpdated));
-      }
-    } catch (err) {
-      console.error("Failed to push sync:", err);
-    }
-  };
-
-  const handleCreateRoom = async () => {
-    try {
-      const res = await fetch("/api/room", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          players,
-          activePlayerIds,
-          queue,
-          sessionMatches,
-          activeMatch,
-          winnerCelebration,
-          activeScreen,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setRoomCode(data.code);
-        setRoomRole("host");
-        setLastServerUpdate(data.state.lastUpdated);
-        localStorage.setItem("shuttle_room_code", data.code);
-        localStorage.setItem("shuttle_room_role", "host");
-        localStorage.setItem("shuttle_last_server_update", String(data.state.lastUpdated));
-        alert(`Cloud Room created! Share Code: ${data.code}`);
-      } else {
-        alert("Failed to create room.");
-      }
-    } catch (err) {
-      alert("Error connecting to server.");
-    }
-  };
-
-  const handleJoinRoom = async (code: string) => {
-    const cleanCode = code.trim().toUpperCase();
-    if (!cleanCode || cleanCode.length !== 6) {
-      alert("Please enter a valid 6-character invite code.");
-      return;
-    }
-    try {
-      const res = await fetch(`/api/room/${cleanCode}`);
-      if (res.ok) {
-        const data = await res.json();
-        setRoomCode(cleanCode);
-        setRoomRole("viewer");
-        setPlayers(data.players);
-        setActivePlayerIds(data.activePlayerIds);
-        setQueue(data.queue);
-        setSessionMatches(data.sessionMatches);
-        setActiveMatch(data.activeMatch);
-        setWinnerCelebration(data.winnerCelebration);
-        setActiveScreen(data.activeScreen);
-        setLastServerUpdate(data.lastUpdated);
-
-        localStorage.setItem("shuttle_room_code", cleanCode);
-        localStorage.setItem("shuttle_room_role", "viewer");
-        localStorage.setItem("shuttle_players", JSON.stringify(data.players));
-        localStorage.setItem("shuttle_active_player_ids", JSON.stringify(data.activePlayerIds));
-        localStorage.setItem("shuttle_queue", JSON.stringify(data.queue));
-        localStorage.setItem("shuttle_session_matches", JSON.stringify(data.sessionMatches));
-        localStorage.setItem("shuttle_last_server_update", String(data.lastUpdated));
-        setJoinInput("");
-        alert(`Successfully joined room ${cleanCode} as Spectator!`);
-      } else {
-        alert("Invite room not found. Check the code and try again.");
-      }
-    } catch (err) {
-      alert("Error connecting to server.");
-    }
-  };
-
-  const handleDisconnectRoom = () => {
-    if (confirm("Disconnect from cloud session? Your local device will keep the current session state, but edits will no longer sync.")) {
-      setRoomCode(null);
-      setRoomRole(null);
-      localStorage.removeItem("shuttle_room_code");
-      localStorage.removeItem("shuttle_room_role");
-      localStorage.removeItem("shuttle_last_server_update");
-    }
-  };
-
-  const getDailyLeaderboard = () => {
-    const statsMap: Record<string, {
-      id: string;
-      name: string;
-      wins: number;
-      losses: number;
-      pointsScored: number;
-      pointsConceded: number;
-    }> = {};
-
-    activePlayerIds.forEach((id) => {
-      const playerObj = players.find((p) => p.id === id);
-      if (playerObj) {
-        statsMap[id] = {
-          id,
-          name: playerObj.name,
-          wins: 0,
-          losses: 0,
-          pointsScored: 0,
-          pointsConceded: 0,
-        };
-      }
-    });
-
-    sessionMatches.forEach((match) => {
-      const isLeftWinner = match.winnerSide === "left";
-      
-      match.leftPlayers.forEach((id) => {
-        if (statsMap[id]) {
-          statsMap[id].pointsScored += match.leftScore;
-          statsMap[id].pointsConceded += match.rightScore;
-          if (isLeftWinner) {
-            statsMap[id].wins += 1;
-          } else {
-            statsMap[id].losses += 1;
-          }
-        }
-      });
-
-      match.rightPlayers.forEach((id) => {
-        if (statsMap[id]) {
-          statsMap[id].pointsScored += match.rightScore;
-          statsMap[id].pointsConceded += match.leftScore;
-          if (!isLeftWinner) {
-            statsMap[id].wins += 1;
-          } else {
-            statsMap[id].losses += 1;
-          }
-        }
-      });
-    });
-
-    return Object.values(statsMap)
-      .map((row) => ({
-        ...row,
-        diff: row.pointsScored - row.pointsConceded,
-        winRate: row.wins + row.losses > 0 
-          ? Math.round((row.wins / (row.wins + row.losses)) * 100) 
-          : 0
-      }))
-      .sort((a, b) => {
-        if (b.wins !== a.wins) return b.wins - a.wins;
-        if (b.diff !== a.diff) return b.diff - a.diff;
-        return b.pointsScored - a.pointsScored;
-      });
-  };
-
-  // Sync state to localStorage when changed
-  const savePlayersToStorage = (updatedPlayers: Player[]) => {
-    setPlayers(updatedPlayers);
-    localStorage.setItem("shuttle_players", JSON.stringify(updatedPlayers));
-    syncState({ players: updatedPlayers });
-  };
-
-  const saveActivePlayerIdsToStorage = (updatedIds: string[]) => {
-    setActivePlayerIds(updatedIds);
-    localStorage.setItem("shuttle_active_player_ids", JSON.stringify(updatedIds));
-    
-    // Auto-align queue: add new active players to back of queue, remove inactive from queue
-    const activePlayers = players.filter((p) => updatedIds.includes(p.id));
-    const newQueue = queue.filter((qp) => updatedIds.includes(qp.id));
-    
-    // Add checked-in players that aren't in queue yet
-    activePlayers.forEach((p) => {
-      if (!newQueue.some((qp) => qp.id === p.id)) {
-        newQueue.push(p);
-      }
-    });
-
-    setQueue(newQueue);
-    localStorage.setItem("shuttle_queue", JSON.stringify(newQueue));
-    syncState({ activePlayerIds: updatedIds, queue: newQueue });
-  };
-
-  const saveQueueToStorage = (updatedQueue: Player[]) => {
-    setQueue(updatedQueue);
-    localStorage.setItem("shuttle_queue", JSON.stringify(updatedQueue));
-    syncState({ queue: updatedQueue });
-  };
-
-  const saveMatchesToStorage = (updatedMatches: MatchRecord[]) => {
-    setSessionMatches(updatedMatches);
-    localStorage.setItem("shuttle_session_matches", JSON.stringify(updatedMatches));
-    syncState({ sessionMatches: updatedMatches });
-  };
-
-  // 1. Add Player
-  const handleAddPlayer = (name: string) => {
-    if (roomCode && roomRole === "viewer") return;
-    // Check if name exists
-    if (players.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
-      alert("A player with this name already exists!");
-      return;
-    }
-    const newPlayer: Player = {
-      id: Date.now().toString(),
-      name,
-      stats: { wins: 0, losses: 0, errors: 0, points: 0 },
-    };
-    const updated = [...players, newPlayer];
-    savePlayersToStorage(updated);
-    
-    // Automatically select for today
-    saveActivePlayerIdsToStorage([...activePlayerIds, newPlayer.id]);
-  };
-
-  // 2. Toggle active status today
-  const handleTogglePlayerActive = (id: string) => {
-    if (roomCode && roomRole === "viewer") return;
-    let updated: string[];
-    if (activePlayerIds.includes(id)) {
-      updated = activePlayerIds.filter((pid) => pid !== id);
-    } else {
-      updated = [...activePlayerIds, id];
-    }
-    saveActivePlayerIdsToStorage(updated);
-  };
-
-  // 3. Start Match Setup
-  const handleStartMatch = (config: {
-    mode: "singles" | "doubles";
-    scoringSystem: "classic" | "rally";
-    leftPlayers: Player[];
-    rightPlayers: Player[];
-  }) => {
-    if (roomCode && roomRole === "viewer") return;
-    const matchState = initializeMatch(
-      config.mode,
-      config.scoringSystem,
-      config.leftPlayers,
-      config.rightPlayers
-    );
-    setActiveMatch(matchState);
-    
-    // Remove playing players from waiting queue during active match
-    const playingIds = [...config.leftPlayers, ...config.rightPlayers].map((p) => p.id);
-    const remainingQueue = queue.filter((p) => !playingIds.includes(p.id));
-    saveQueueToStorage(remainingQueue);
-
-    setActiveScreen("scoreboard");
-    syncState({ activeMatch: matchState, activeScreen: "scoreboard", queue: remainingQueue });
-  };
-
-  // Check for winning conditions
-  const checkWinner = (match: MatchState): Side | null => {
-    const scoreA = match.left.score;
-    const scoreB = match.right.score;
-    const isRally = match.scoringSystem === "rally";
-
-    // Set standard winning targets
-    // Rally: 21 points. Classic Doubles: 15 points. Classic Singles: 11 points.
-    let winTarget = 21;
-    if (!isRally) {
-      winTarget = match.mode === "doubles" ? 15 : 11;
-    }
-
-    const maxCap = isRally ? 30 : 21;
-
-    // Check if team A won
-    if (scoreA >= winTarget && scoreA - scoreB >= 2) {
-      return "left";
-    }
-    if (scoreA === maxCap) {
-      return "left";
-    }
-
-    // Check if team B won
-    if (scoreB >= winTarget && scoreB - scoreA >= 2) {
-      return "right";
-    }
-    if (scoreB === maxCap) {
-      return "right";
-    }
-
-    return null;
-  };
-
-  // 4. Scoring Actions
-  const handleRallyWinner = (winnerSide: Side) => {
-    if (!activeMatch) return;
-    const serviceOver = activeMatch.servingSide !== winnerSide;
-    const updated = handleRally(activeMatch, winnerSide, false, null);
-    setActiveMatch(updated);
-
-    const winner = checkWinner(updated);
-    if (winner) {
-      const winnerObj = winner === "left" ? updated.left : updated.right;
-      const winnerNames = winnerObj.players
-        .filter((p) => p !== null)
-        .map((p) => p!.name)
-        .join(" & ");
-
-      const celebration = {
-        winnerSide: winner,
-        winnerNames,
-      };
-
-      setWinnerCelebration(celebration);
-      syncState({ activeMatch: updated, winnerCelebration: celebration });
-      
-      // Feedback: Victory!
-      triggerHaptic("win");
-      if (voiceEnabled) {
-        try {
-          window.speechSynthesis.cancel();
-          window.speechSynthesis.speak(new SpeechSynthesisUtterance(`Game won by ${winnerNames}`));
-        } catch (err) {}
-      }
-    } else {
-      syncState({ activeMatch: updated });
-      
-      // Feedback: Point or Serve Over
-      triggerHaptic(serviceOver ? "side-out" : "point");
-      if (voiceEnabled) {
-        announceScore(updated.left.score, updated.right.score, updated.servingSide, updated.scoringSystem, updated.mode, serviceOver);
-      }
-    }
-  };
-
-  // 5. Save Finished Match Stats
-  const handleSaveMatch = () => {
-    if (!activeMatch || !winnerCelebration) return;
-
-    const winnerSide = winnerCelebration.winnerSide;
-
-    const leftNames = activeMatch.left.players.filter((p) => p !== null).map((p) => p!.id);
-    const rightNames = activeMatch.right.players.filter((p) => p !== null).map((p) => p!.id);
-
-    const newRecord: MatchRecord = {
-      id: Date.now().toString(),
-      date: new Date().toLocaleDateString(),
-      mode: activeMatch.mode,
-      leftPlayers: leftNames,
-      rightPlayers: rightNames,
-      leftScore: activeMatch.left.score,
-      rightScore: activeMatch.right.score,
-      winnerSide,
-    };
-
-    // Save record
-    saveMatchesToStorage([newRecord, ...sessionMatches]);
-
-    // Update Lifetime Player Statistics
-    const updatedPlayers = players.map((player) => {
-      const isLeftPlayer = activeMatch.left.players.some((p) => p?.id === player.id);
-      const isRightPlayer = activeMatch.right.players.some((p) => p?.id === player.id);
-
-      if (!isLeftPlayer && !isRightPlayer) return player;
-
-      const stats = { ...player.stats };
-
-      // Errors
-      if (isLeftPlayer) stats.errors += activeMatch.left.errors;
-      if (isRightPlayer) stats.errors += activeMatch.right.errors;
-
-      // Wins / Losses
-      const isWinner = (isLeftPlayer && winnerSide === "left") || (isRightPlayer && winnerSide === "right");
-      if (isWinner) {
-        stats.wins += 1;
-      } else {
-        stats.losses += 1;
-      }
-
-      return {
-        ...player,
-        stats,
-      };
-    });
-
-    savePlayersToStorage(updatedPlayers);
-
-    // Queue Rotations: Winner Stays, Loser Rotates Out
-    const losers = winnerSide === "left" ? activeMatch.right.players : activeMatch.left.players;
-
-    const nextQueue = [...queue];
-
-    // Push losers to back of queue
-    losers.forEach((p) => {
-      if (p) {
-        // Find fresh profile from database
-        const databasePlayer = updatedPlayers.find((dp) => dp.id === p.id);
-        if (databasePlayer) nextQueue.push(databasePlayer);
-      }
-    });
-
-    // Winners stay: Add winners back to queue front/playing rotation
-    // Let's also make sure queue players are updated with fresh database stats
-    const freshQueue = nextQueue.map((qp) => {
-      const fresh = updatedPlayers.find((dp) => dp.id === qp.id);
-      return fresh || qp;
-    });
-
-    saveQueueToStorage(freshQueue);
-
-    // Clean up active match
-    setActiveMatch(null);
-    setWinnerCelebration(null);
-    setActiveScreen("home");
-    syncState({
-      activeMatch: null,
-      winnerCelebration: null,
-      activeScreen: "home",
-      queue: freshQueue,
-    });
-  };
-
-  const handleDiscardMatch = () => {
-    if (roomCode && roomRole === "viewer") return;
-    if (confirm("Are you sure you want to discard this match and its stats?")) {
-      // Return players to back of queue
-      if (activeMatch) {
-        const allMatchPlayers = [
-          ...activeMatch.left.players,
-          ...activeMatch.right.players,
-        ].filter((p) => p !== null) as Player[];
-
-        const nextQueue = [...queue];
-        allMatchPlayers.forEach((p) => {
-          if (!nextQueue.some((qp) => qp.id === p.id)) {
-            nextQueue.push(p);
-          }
-        });
-        saveQueueToStorage(nextQueue);
-      }
-
-      setActiveMatch(null);
-      setWinnerCelebration(null);
-      setActiveScreen("home");
-      syncState({ activeMatch: null, winnerCelebration: null, activeScreen: "home" });
-    }
-  };
-
-  const handleResetSession = () => {
-    if (roomCode && roomRole === "viewer") return;
-    if (confirm("Reset current day? This clears today's match history and resets player queues, but keeps all players in the database.")) {
-      saveMatchesToStorage([]);
-      // Reset queue to all active player profiles
-      const activePlayers = players.filter((p) => activePlayerIds.includes(p.id));
-      saveQueueToStorage(activePlayers);
-    }
-  };
-
-  const handleToggleVoice = () => {
-    const newVal = !voiceEnabled;
-    setVoiceEnabled(newVal);
-    localStorage.setItem("shuttle_voice_enabled", String(newVal));
-    triggerHaptic("point");
-    if (newVal) {
-      try {
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(new SpeechSynthesisUtterance("Voice referee active"));
-      } catch (err) {}
-    }
-  };
-
-  const handleUndoAction = () => {
-    if (roomCode && roomRole === "viewer") return;
-    if (!activeMatch) return;
-    const reverted = handleUndo(activeMatch);
-    setActiveMatch(reverted);
-    syncState({ activeMatch: reverted });
-    triggerHaptic("undo");
-    if (voiceEnabled) {
-      announceScore(reverted.left.score, reverted.right.score, reverted.servingSide, reverted.scoringSystem, reverted.mode, false);
-    }
-  };
-
-  const handleRedoAction = () => {
-    if (roomCode && roomRole === "viewer") return;
-    if (!activeMatch) return;
-    const restored = handleRedo(activeMatch);
-    setActiveMatch(restored);
-    syncState({ activeMatch: restored });
-    triggerHaptic("undo");
-    if (voiceEnabled) {
-      announceScore(restored.left.score, restored.right.score, restored.servingSide, restored.scoringSystem, restored.mode, false);
-    }
-  };
-
-  const handleSwapSidesAction = () => {
-    if (roomCode && roomRole === "viewer") return;
-    if (!activeMatch) return;
-    const swapped = swapSides(activeMatch);
-    setActiveMatch(swapped);
-    syncState({ activeMatch: swapped });
-    triggerHaptic("point");
-  };
+import React from "react";
+import Link from "next/link";
+import { useSession } from "../context/SessionContext";
+
+export default function HomePage() {
+  const {
+    players,
+    activePlayerIds,
+    queue,
+    sessionMatches,
+    activeMatch,
+    roomCode,
+    roomRole,
+    courtName,
+    recentCourts,
+    syncError,
+    joinInput,
+    setJoinInput,
+    handleCreateRoom,
+    handleJoinRoom,
+    handleDisconnectRoom,
+    handleResetSession,
+    getDailyLeaderboard
+  } = useSession();
+
+  const [courtNameInput, setCourtNameInput] = React.useState("");
 
   return (
-    <div 
-      className="app-container"
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-    >
-      {/* Dynamic Header */}
-      {activeScreen !== "scoreboard" && (
-        <header className="app-header">
-          <h1 className="app-title" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <img 
-              src="/logo.jpg" 
-              alt="ShuttleScore Logo" 
-              style={{ 
-                width: "28px", 
-                height: "28px", 
-                borderRadius: "6px", 
-                border: "1px solid rgba(255,255,255,0.12)",
-                boxShadow: "0 0 8px rgba(234,179,8,0.15)"
-              }} 
-            />
-            ShuttleScore
-          </h1>
-          <div style={{ display: "flex", gap: "8px" }}>
-            {activeScreen === "home" && (
-              <button 
-                className="glass-button" 
-                style={{ padding: "6px 12px", fontSize: "0.8rem" }}
-                onClick={() => setActiveScreen("players")}
-              >
-                Players
-              </button>
-            )}
-            {activeScreen !== "home" && (
-              <button 
-                className="glass-button" 
-                style={{ padding: "6px 12px", fontSize: "0.8rem" }}
-                onClick={() => setActiveScreen("home")}
-              >
-                Back
-              </button>
-            )}
-          </div>
-        </header>
-      )}
-
-      {/* 1. Home Dashboard View */}
-      {activeScreen === "home" && (
-        <div className="screen">
-        {/* Day Session Card */}
-        <div className="session-summary-card glass-panel">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "0.85rem", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase" }}>
-              Active Session
-            </span>
-            <span suppressHydrationWarning style={{ fontSize: "0.8rem", color: "var(--color-serve)", fontWeight: 600 }}>
-              {new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
-            </span>
-          </div>
-
-          <div style={{ display: "flex", gap: "10px" }}>
-            <div style={{ flex: 1, textAlign: "center", background: "rgba(0,0,0,0.15)", padding: "10px", borderRadius: "10px" }}>
-              <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "white" }}>{activePlayerIds.length}</div>
-              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Players Pool</div>
-            </div>
-            <div style={{ flex: 1, textAlign: "center", background: "rgba(0,0,0,0.15)", padding: "10px", borderRadius: "10px" }}>
-              <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "white" }}>{sessionMatches.length}</div>
-              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Matches Played</div>
-            </div>
-          </div>
-
-          <button 
-            className="primary-action-btn"
-            onClick={() => {
-              if (activePlayerIds.length < 2) {
-                alert("Please check-in at least 2 players to start matches. Go to 'Players' menu.");
-                setActiveScreen("players");
-              } else {
-                setActiveScreen("setup");
-              }
-            }}
-          >
-            New Match
-          </button>
+    <div className="app-container">
+      {/* Header */}
+      <header className="app-header">
+        <h1 className="app-title" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <img 
+            src="/logo.jpg" 
+            alt="ShuttleScore Logo" 
+            style={{ 
+              width: "28px", 
+              height: "28px", 
+              borderRadius: "6px", 
+              border: "1px solid rgba(255,255,255,0.12)",
+              boxShadow: "0 0 8px rgba(234,179,8,0.15)"
+            }} 
+          />
+          {roomCode ? `${courtName}` : "ShuttleScore"}
+        </h1>
+        <div style={{ display: "flex", gap: "8px" }}>
+          {roomCode && (
+            <Link href="/players" className="glass-button" style={{ padding: "6px 12px", fontSize: "0.8rem", textDecoration: "none", fontWeight: 600 }}>
+              Players roster
+            </Link>
+          )}
         </div>
+      </header>
 
-        {/* Cloud Sync Room Panel */}
-        <div className="glass-panel flex-col gap-12" style={{ padding: "16px", marginBottom: "20px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              ⚡ Real-time Collaboration
-            </span>
-            {roomCode ? (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "0.75rem", color: "#10b981", fontWeight: 700 }}>
-                <span className="live-pulse-dot" /> Connected
-              </span>
-            ) : (
-              <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600 }}>
-                Local Mode
-              </span>
-            )}
-          </div>
+      {/* Main Viewport */}
+      <div className="screen" style={{ marginTop: "20px" }}>
+        
+        {/* ================= PHASE 1: COURT SELECTION PORTAL ================= */}
+        {!roomCode ? (
+          <>
+            {/* Info Landing Card */}
+            <div className="session-summary-card glass-panel" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", background: "linear-gradient(135deg, rgba(234, 179, 8, 0.05) 0%, rgba(0, 0, 0, 0) 100%)", border: "1px solid rgba(234, 179, 8, 0.12)" }}>
+              <h2 style={{ fontSize: "1.2rem", fontWeight: 800, color: "white", display: "flex", alignItems: "center", gap: "8px" }}>
+                🏸 Live Badminton Scoring Board
+              </h2>
+              <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", lineHeight: "1.4" }}>
+                Create or join a court by invite code. ShuttleScore tracks match timelines, checks-in players, and seeds matches directly from wait queues.
+              </p>
+            </div>
 
-          {roomCode ? (
-            <div className="flex-col gap-8">
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#09090b", padding: "12px 14px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.06)" }}>
-                <div>
-                  <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>
-                    Invite Code
-                  </div>
-                  <div style={{ fontSize: "1.25rem", fontWeight: 800, color: "var(--color-serve)", fontFamily: "monospace", letterSpacing: "0.05em", marginTop: "2px" }}>
-                    {roomCode}
+            {/* Create & Join Court Card */}
+            <div className="glass-panel flex-col gap-12" style={{ padding: "16px", marginBottom: "20px", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  ⚡ Court Registry Manager
+                </span>
+              </div>
+
+              <div className="flex-col gap-16">
+                {/* Create Court Block */}
+                <div className="flex-col gap-8" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: "16px" }}>
+                  <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>
+                    Create New Court (Persistent Room)
+                  </span>
+                  <div style={{ display: "flex", gap: "8px", width: "100%" }}>
+                    <input 
+                      type="text" 
+                      className="text-input" 
+                      placeholder="Enter Court Name (e.g. Court 1)" 
+                      value={courtNameInput}
+                      onChange={(e) => setCourtNameInput(e.target.value)}
+                      style={{ padding: "10px 12px", fontSize: "0.82rem", flex: 1 }}
+                    />
+                    <button 
+                      className="glass-button" 
+                      onClick={() => {
+                        if (!courtNameInput.trim()) {
+                          alert("Please enter a name for the court.");
+                          return;
+                        }
+                        handleCreateRoom(courtNameInput.trim());
+                        setCourtNameInput("");
+                      }}
+                      style={{ 
+                        padding: "10px 16px", 
+                        fontSize: "0.8rem", 
+                        fontWeight: 700, 
+                        color: "var(--color-serve)", 
+                        borderColor: "var(--color-serve)",
+                        background: "rgba(234, 179, 8, 0.02)"
+                      }}
+                    >
+                      Create
+                    </button>
                   </div>
                 </div>
-                <button 
-                  className="glass-button"
-                  style={{ padding: "6px 12px", fontSize: "0.75rem", borderColor: "rgba(255,255,255,0.12)" }}
-                  onClick={() => {
-                    navigator.clipboard.writeText(roomCode);
-                    alert("Invite code copied to clipboard!");
+
+                {/* Join Court Block */}
+                <div className="flex-col gap-8">
+                  <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>
+                    Enter Court Invite Code
+                  </span>
+                  <div style={{ display: "flex", gap: "8px", width: "100%" }}>
+                    <input 
+                      type="text" 
+                      className="text-input" 
+                      placeholder="Enter 6-char Code" 
+                      value={joinInput}
+                      onChange={(e) => setJoinInput(e.target.value.toUpperCase().slice(0, 6))}
+                      style={{ padding: "10px 12px", fontSize: "0.82rem", textTransform: "uppercase", fontFamily: "monospace", flex: 1 }}
+                    />
+                    <button 
+                      className="glass-button" 
+                      onClick={() => handleJoinRoom(joinInput)}
+                      style={{ 
+                        padding: "10px 18px", 
+                        fontSize: "0.8rem", 
+                        fontWeight: 700, 
+                        color: "var(--color-serve)", 
+                        borderColor: "var(--color-serve)",
+                        background: "rgba(234, 179, 8, 0.02)"
+                      }}
+                    >
+                      Join Court
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Rejoin Recent Courts */}
+            {recentCourts.length > 0 && (
+              <div className="glass-panel flex-col gap-10" style={{ padding: "16px", marginBottom: "20px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  ⏳ Quick Rejoin Recent Courts
+                </span>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {recentCourts.map((c) => (
+                    <div 
+                      key={c.code} 
+                      className="glass-panel" 
+                      style={{ 
+                        padding: "10px 14px", 
+                        background: "rgba(255,255,255,0.015)", 
+                        border: "1px solid rgba(255,255,255,0.05)",
+                        borderRadius: "10px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "12px"
+                      }}
+                    >
+                      <div style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
+                        <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "white", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {c.name}
+                        </div>
+                        <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontFamily: "monospace" }}>
+                          Invite Code: {c.code}
+                        </div>
+                      </div>
+                      
+                      <button 
+                        className="glass-button" 
+                        onClick={() => handleJoinRoom(c.code)}
+                        style={{ padding: "6px 12px", fontSize: "0.72rem", fontWeight: 700, borderColor: "var(--color-serve)", color: "var(--color-serve)" }}
+                      >
+                        Enter Court
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          
+          // ================= PHASE 2: ACTIVE COURT DASHBOARD =================
+          <>
+            {/* Active Court Session Summary Card */}
+            <div className="session-summary-card glass-panel" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "0.85rem", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase" }}>
+                  Active Court Dashboard
+                </span>
+                <span suppressHydrationWarning style={{ fontSize: "0.8rem", color: "var(--color-serve)", fontWeight: 600 }}>
+                  {new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                </span>
+              </div>
+
+              <div style={{ display: "flex", gap: "10px" }}>
+                <div style={{ flex: 1, textAlign: "center", background: "rgba(0,0,0,0.15)", padding: "10px", borderRadius: "10px" }}>
+                  <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "white" }}>{activePlayerIds.length}</div>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Players Roster</div>
+                </div>
+                <div style={{ flex: 1, textAlign: "center", background: "rgba(0,0,0,0.15)", padding: "10px", borderRadius: "10px" }}>
+                  <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "white" }}>{sessionMatches.length}</div>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Matches Played</div>
+                </div>
+              </div>
+
+              {activeMatch ? (
+                <Link 
+                  href="/scoreboard"
+                  className="primary-action-btn"
+                  style={{
+                    background: "linear-gradient(90deg, #eab308 0%, #fbbf24 100%)",
+                    color: "#000000",
+                    fontWeight: 800,
+                    boxShadow: "0 0 15px rgba(234, 179, 8, 0.2)",
+                    border: "none",
+                    textDecoration: "none",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center"
                   }}
                 >
-                  Copy Code
-                </button>
-              </div>
-              <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", lineHeight: "1.3" }}>
-                Others can enter this code on their phones to view matches and log scores in real-time.
-              </p>
-              {syncError && (
-                <div style={{ fontSize: "0.75rem", color: "var(--color-out)", fontWeight: 600 }}>
-                  ⚠️ {syncError}
-                </div>
+                  ⚡ Active Match Board
+                </Link>
+              ) : (
+                <Link 
+                  href="/setup" 
+                  className="primary-action-btn"
+                  style={{ textDecoration: "none", display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "center" }}
+                >
+                  New Match
+                </Link>
               )}
-              <button 
-                className="glass-button" 
-                onClick={handleDisconnectRoom}
-                style={{ padding: "10px", border: "1px solid rgba(255,255,255,0.08)", fontSize: "0.8rem", width: "100%" }}
-              >
-                Disconnect Session
-              </button>
             </div>
-          ) : (
-            <div className="flex-col gap-12">
-              <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", lineHeight: "1.3" }}>
-                Generate an invite code to sync this session across multiple devices for co-scoring.
-              </p>
-              
-              <div style={{ display: "flex", gap: "8px", width: "100%" }}>
-                <input 
-                  type="text" 
-                  className="text-input" 
-                  placeholder="Enter 6-char Code" 
-                  value={joinInput}
-                  onChange={(e) => setJoinInput(e.target.value.toUpperCase().slice(0, 6))}
-                  style={{ padding: "10px 12px", fontSize: "0.82rem", textTransform: "uppercase", fontFamily: "monospace" }}
-                />
+
+            {/* Cloud Sync Room Panel (Connected Info) */}
+            <div className="glass-panel flex-col gap-12" style={{ padding: "16px", marginBottom: "20px", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  ⚡ Court Sync Panel
+                </span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "0.75rem", color: "#10b981", fontWeight: 700 }}>
+                  <span className="live-pulse-dot" /> Connected (Active)
+                </span>
+              </div>
+
+              <div className="flex-col gap-8">
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#09090b", padding: "12px 14px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                  <div>
+                    <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>
+                      Active Court: {courtName}
+                    </div>
+                    <div style={{ fontSize: "1.25rem", fontWeight: 800, color: "var(--color-serve)", fontFamily: "monospace", letterSpacing: "0.05em", marginTop: "2px" }}>
+                      {roomCode}
+                    </div>
+                  </div>
+                  
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button 
+                      className="glass-button"
+                      style={{ padding: "6px 10px", fontSize: "0.72rem", borderColor: "rgba(255,255,255,0.12)" }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(roomCode);
+                        alert("Invite code copied!");
+                      }}
+                    >
+                      Copy
+                    </button>
+                    <button 
+                      className="glass-button"
+                      style={{ padding: "6px 10px", fontSize: "0.72rem", borderColor: "var(--color-serve)", color: "var(--color-serve)" }}
+                      onClick={async () => {
+                        const shareUrl = `${window.location.origin}?room=${roomCode}`;
+                        if (navigator.share) {
+                          try {
+                            await navigator.share({
+                              title: `Watch our live match on ${courtName}!`,
+                              text: `Join Room ${roomCode} to spectate live!`,
+                              url: shareUrl
+                            });
+                          } catch (err) {}
+                        } else {
+                          navigator.clipboard.writeText(shareUrl);
+                          alert("Direct share link copied to clipboard!");
+                        }
+                      }}
+                    >
+                      Share
+                    </button>
+                  </div>
+                </div>
+                <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", lineHeight: "1.3" }}>
+                  Share this link or code with your friends to score or spectate together.
+                </p>
+                {syncError && (
+                  <div style={{ fontSize: "0.75rem", color: "var(--color-out)", fontWeight: 600 }}>
+                    ⚠️ {syncError}
+                  </div>
+                )}
                 <button 
                   className="glass-button" 
-                  onClick={() => handleJoinRoom(joinInput)}
-                  style={{ padding: "10px 16px", fontSize: "0.8rem", fontWeight: 700 }}
+                  onClick={handleDisconnectRoom}
+                  style={{ padding: "10px", border: "1px solid rgba(255,255,255,0.08)", fontSize: "0.8rem", width: "100%" }}
                 >
-                  Join
+                  Exit Court Dashboard
                 </button>
               </div>
-
-              <button 
-                className="glass-button" 
-                onClick={handleCreateRoom}
-                style={{ 
-                  padding: "12px", 
-                  border: "1px solid var(--color-serve)", 
-                  color: "var(--color-serve)", 
-                  background: "rgba(234, 179, 8, 0.02)", 
-                  fontSize: "0.82rem", 
-                  fontWeight: 700, 
-                  width: "100%" 
-                }}
-              >
-                Create Invite Room
-              </button>
             </div>
-          )}
-        </div>
 
-        {/* Queue Display */}
-        {activePlayerIds.length > 0 && (
-          <div className="glass-panel" style={{ padding: "16px", marginBottom: "20px" }}>
-            <h3 style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "10px", display: "flex", justifyContent: "space-between" }}>
-              <span>Waiting Queue ({queue.length})</span>
-              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>First-in, first-play</span>
-            </h3>
-            {queue.length === 0 ? (
-              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", textAlign: "center", padding: "12px 0" }}>
-                All players are in a match or queue is empty!
-              </div>
-            ) : (
-              <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "6px" }}>
-                {queue.map((p, idx) => (
-                  <div 
-                    key={p.id} 
-                    style={{ 
-                      padding: "6px 12px", 
-                      background: "rgba(255,255,255,0.04)", 
-                      borderRadius: "16px", 
-                      fontSize: "0.8rem", 
-                      fontWeight: 500,
-                      border: "1px solid rgba(255,255,255,0.05)",
-                      whiteSpace: "nowrap"
-                    }}
-                  >
-                    <span style={{ color: "var(--color-serve)", marginRight: "4px" }}>#{idx + 1}</span> {p.name}
+            {/* Roster Queue Display */}
+            {activePlayerIds.length > 0 && (
+              <div className="glass-panel" style={{ padding: "16px", marginBottom: "20px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                <h3 style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "10px", display: "flex", justifyContent: "space-between" }}>
+                  <span>Waiting Queue ({queue.length})</span>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>First-in, first-play</span>
+                </h3>
+                {queue.length === 0 ? (
+                  <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", textAlign: "center", padding: "12px 0" }}>
+                    All players are in a match or queue is empty!
                   </div>
-                ))}
+                ) : (
+                  <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "6px" }}>
+                    {queue.map((p, idx) => (
+                      <div 
+                        key={p.id} 
+                        style={{ 
+                          padding: "6px 12px", 
+                          background: "rgba(255,255,255,0.04)", 
+                          borderRadius: "16px", 
+                          fontSize: "0.8rem", 
+                          fontWeight: 500,
+                          border: "1px solid rgba(255,255,255,0.05)",
+                          whiteSpace: "nowrap"
+                        }}
+                      >
+                        <span style={{ color: "var(--color-serve)", marginRight: "4px" }}>#{idx + 1}</span> {p.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        {/* Daily Leaderboard Card */}
-        {activePlayerIds.length > 0 && (
-          <div className="glass-panel" style={{ padding: "16px", marginBottom: "20px" }}>
-            <h3 style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "12px" }}>
-              Daily Leaderboard
-            </h3>
-            {sessionMatches.length === 0 ? (
-              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", textAlign: "center", padding: "20px 0" }}>
-                Play matches today to establish daily leaderboard standings!
-              </div>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table className="leaderboard-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: "50px" }}>Rank</th>
-                      <th>Player</th>
-                      <th style={{ width: "70px", textAlign: "center" }}>W/L</th>
-                      <th style={{ width: "80px", textAlign: "center" }}>Diff</th>
-                      <th style={{ width: "80px", textAlign: "center" }}>Win %</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {getDailyLeaderboard().map((row, idx) => {
-                      const rankClass = idx === 0 ? "rank-1" : idx === 1 ? "rank-2" : idx === 2 ? "rank-3" : "";
-                      return (
-                        <tr key={row.id}>
-                          <td>
-                            <span className={`rank-badge ${rankClass}`}>{idx + 1}</span>
-                          </td>
-                          <td style={{ fontWeight: 600 }}>{row.name}</td>
-                          <td style={{ textAlign: "center", fontFamily: "monospace" }}>{row.wins} - {row.losses}</td>
-                          <td style={{ 
-                            textAlign: "center", 
-                            fontFamily: "monospace", 
-                            fontWeight: 700,
-                            color: row.diff > 0 ? "var(--color-point)" : row.diff < 0 ? "var(--color-out)" : "inherit"
-                          }}>
-                            {row.diff > 0 ? `+${row.diff}` : row.diff}
-                          </td>
-                          <td style={{ textAlign: "center", fontFamily: "monospace" }}>{row.winRate}%</td>
+            {/* Daily Leaderboard */}
+            {activePlayerIds.length > 0 && (
+              <div className="glass-panel" style={{ padding: "16px", marginBottom: "20px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                <h3 style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "12px" }}>
+                  Daily Leaderboard
+                </h3>
+                {sessionMatches.length === 0 ? (
+                  <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", textAlign: "center", padding: "20px 0" }}>
+                    Play matches today to establish daily leaderboard standings!
+                  </div>
+                ) : (
+                  <div style={{ overflowX: "auto" }}>
+                    <table className="leaderboard-table">
+                      <thead>
+                        <tr>
+                          <th style={{ width: "50px" }}>Rank</th>
+                          <th>Player</th>
+                          <th style={{ width: "70px", textAlign: "center" }}>W/L</th>
+                          <th style={{ width: "80px", textAlign: "center" }}>Diff</th>
+                          <th style={{ width: "80px", textAlign: "center" }}>Win %</th>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                      </thead>
+                      <tbody>
+                        {getDailyLeaderboard().map((row: any, idx: number) => {
+                          const rankClass = idx === 0 ? "rank-1" : idx === 1 ? "rank-2" : idx === 2 ? "rank-3" : "";
+                          return (
+                            <tr key={row.id}>
+                              <td>
+                                <span className={`rank-badge ${rankClass}`}>{idx + 1}</span>
+                              </td>
+                              <td style={{ fontWeight: 600 }}>{row.name}</td>
+                              <td style={{ textAlign: "center", fontFamily: "monospace" }}>{row.wins} - {row.losses}</td>
+                              <td style={{ 
+                                  textAlign: "center", 
+                                  fontFamily: "monospace", 
+                                  fontWeight: 700,
+                                  color: row.diff > 0 ? "var(--color-point)" : row.diff < 0 ? "var(--color-out)" : "inherit"
+                                }}>
+                                {row.diff > 0 ? `+${row.diff}` : row.diff}
+                              </td>
+                              <td style={{ textAlign: "center", fontFamily: "monospace" }}>{row.winRate}%</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
-          </div>
+
+            {/* Grouped Day-by-Day Session History List */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+              <h3 style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-secondary)" }}>Session History</h3>
+              {sessionMatches.length > 0 && (
+                <button 
+                  className="glass-button" 
+                  style={{ padding: "4px 8px", fontSize: "0.7rem", color: "var(--color-out)", borderColor: "rgba(244,63,94,0.15)" }}
+                  onClick={handleResetSession}
+                >
+                  Reset Session
+                </button>
+              )}
+            </div>
+
+            <div className="history-section" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              {sessionMatches.length === 0 ? (
+                <div style={{ textAlign: "center", color: "var(--text-muted)", padding: "30px 0" }}>
+                  No matches logged yet.
+                </div>
+              ) : (
+                (() => {
+                  const grouped: Record<string, any[]> = {};
+                  sessionMatches.forEach((m) => {
+                    const dateKey = m.date || "Unknown Date";
+                    if (!grouped[dateKey]) grouped[dateKey] = [];
+                    grouped[dateKey].push(m);
+                  });
+                  
+                  return Object.entries(grouped).map(([date, matches]) => (
+                    <div key={date} className="flex-col gap-8">
+                      <div style={{ 
+                        fontSize: "0.72rem", 
+                        fontWeight: 700, 
+                        color: "var(--color-serve)", 
+                        textTransform: "uppercase", 
+                        letterSpacing: "0.08em",
+                        borderBottom: "1px solid rgba(234,179,8,0.12)",
+                        paddingBottom: "4px",
+                        marginTop: "4px"
+                      }}>
+                        📅 {date}
+                      </div>
+                      <div className="flex-col gap-8">
+                        {matches.map((match) => {
+                          const leftNames = match.leftPlayers.map((id: string) => players.find(p => p.id === id)?.name || "Unknown").join(" & ");
+                          const rightNames = match.rightPlayers.map((id: string) => players.find(p => p.id === id)?.name || "Unknown").join(" & ");
+                          const isLeftWinner = match.winnerSide === "left";
+                          
+                          return (
+                            <div key={match.id} className="history-card glass-panel" style={{ padding: "12px", background: "rgba(255,255,255,0.01)" }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                                  <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600 }}>{match.mode.toUpperCase()}</span>
+                                </div>
+                                <div style={{ fontSize: "0.85rem", display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "8px", alignItems: "center" }}>
+                                  <span style={{ 
+                                    fontWeight: isLeftWinner ? 700 : 400, 
+                                    color: isLeftWinner ? "var(--color-point)" : "var(--text-primary)",
+                                    textAlign: "right"
+                                  }}>
+                                    {leftNames}
+                                  </span>
+                                  <span style={{ fontSize: "0.8rem", background: "rgba(0,0,0,0.3)", padding: "2px 6px", borderRadius: "6px", fontFamily: "monospace", fontWeight: "bold" }}>
+                                    {match.leftScore} - {match.rightScore}
+                                  </span>
+                                  <span style={{ 
+                                    fontWeight: !isLeftWinner ? 700 : 400, 
+                                    color: !isLeftWinner ? "var(--color-point)" : "var(--text-primary)",
+                                    textAlign: "left"
+                                  }}>
+                                    {rightNames}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ));
+                })()
+              )}
+            </div>
+          </>
         )}
 
-        {/* History List */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-          <h3 style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-secondary)" }}>Session History</h3>
-          {sessionMatches.length > 0 && (
-            <button 
-              className="glass-button" 
-              style={{ padding: "4px 8px", fontSize: "0.7rem", color: "var(--color-out)", borderColor: "rgba(244,63,94,0.15)" }}
-              onClick={handleResetSession}
-            >
-              Reset Session
-            </button>
-          )}
-        </div>
-
-        <div className="history-section">
-          {sessionMatches.length === 0 ? (
-            <div style={{ textAlign: "center", color: "var(--text-muted)", padding: "30px 0" }}>
-              No matches played yet today.
-            </div>
-          ) : (
-            sessionMatches.map((match) => {
-              const leftNames = match.leftPlayers.map(id => players.find(p => p.id === id)?.name || "Unknown").join(" & ");
-              const rightNames = match.rightPlayers.map(id => players.find(p => p.id === id)?.name || "Unknown").join(" & ");
-              
-              const isLeftWinner = match.winnerSide === "left";
-              
-              return (
-                <div key={match.id} className="history-card glass-panel">
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                      <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{match.mode.toUpperCase()}</span>
-                      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{match.date}</span>
-                    </div>
-                    <div style={{ fontSize: "0.9rem", display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "8px", alignItems: "center" }}>
-                      <span style={{ 
-                        fontWeight: isLeftWinner ? 700 : 400, 
-                        color: isLeftWinner ? "var(--color-point)" : "var(--text-primary)",
-                        textAlign: "right"
-                      }}>
-                        {leftNames}
-                      </span>
-                      <span style={{ fontSize: "0.85rem", background: "rgba(0,0,0,0.2)", padding: "2px 6px", borderRadius: "6px", fontFamily: "monospace", fontWeight: "bold" }}>
-                        {match.leftScore} - {match.rightScore}
-                      </span>
-                      <span style={{ 
-                        fontWeight: !isLeftWinner ? 700 : 400, 
-                        color: !isLeftWinner ? "var(--color-point)" : "var(--text-primary)",
-                        textAlign: "left"
-                      }}>
-                        {rightNames}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
       </div>
-      )}
-
-      {/* 2. Players Management View */}
-      {activeScreen === "players" && (
-        <div className="screen">
-          <PlayerPool
-            players={players}
-            activePlayerIds={activePlayerIds}
-            sessionMatches={sessionMatches}
-            onAddPlayer={handleAddPlayer}
-            onTogglePlayerActive={handleTogglePlayerActive}
-            onClose={() => setActiveScreen("home")}
-          />
-        </div>
-      )}
-
-      {/* 3. Match Setup View */}
-      {activeScreen === "setup" && (
-        <div className="screen">
-          <MatchSetup
-            activePlayers={players.filter((p) => activePlayerIds.includes(p.id))}
-            queue={queue}
-            defaultScoringSystem="classic"
-            onStartMatch={handleStartMatch}
-            onCancel={() => setActiveScreen("home")}
-          />
-        </div>
-      )}
-
-      {/* 4. Scoreboard Screen */}
-      {activeScreen === "scoreboard" && (
-        <div className="screen no-scroll" style={{ padding: 0 }}>
-          {activeMatch && (
-            <Scoreboard
-              state={activeMatch}
-              voiceEnabled={voiceEnabled}
-              isReadOnly={roomCode !== null && roomRole === "viewer"}
-              onToggleVoice={handleToggleVoice}
-              onRallyWinner={handleRallyWinner}
-              onUndo={handleUndoAction}
-              onRedo={handleRedoAction}
-              onSwapSides={handleSwapSidesAction}
-              onEndMatch={handleDiscardMatch}
-            />
-          )}
-        </div>
-      )}
-
-      {/* Celebration Overlay */}
-      {winnerCelebration && (
-        <div className="celebration-overlay">
-          <TrophyIcon />
-          <h2 style={{ fontSize: "1.8rem", fontWeight: 800, marginBottom: "8px", color: "var(--color-point)" }}>
-            Match Complete!
-          </h2>
-          <p style={{ fontSize: "1.1rem", fontWeight: 600, color: "white", marginBottom: "24px" }}>
-            {winnerCelebration.winnerNames} Won!
-          </p>
-          
-          {activeMatch && (
-            <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", padding: "16px", borderRadius: "12px", width: "100%", maxWidth: "260px", marginBottom: "32px" }}>
-              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: "4px" }}>Final Score</div>
-              <div style={{ fontSize: "2rem", fontWeight: 800, letterSpacing: "2px", fontFamily: "monospace" }}>
-                {activeMatch.left.score} - {activeMatch.right.score}
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px", fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                <span>Errors: {activeMatch.left.errors}</span>
-                <span>Errors: {activeMatch.right.errors}</span>
-              </div>
-            </div>
-          )}
-
-          <div className="flex-col gap-12" style={{ width: "100%", maxWidth: "260px" }}>
-            <button className="primary-action-btn" onClick={handleSaveMatch}>
-              Save Match & Rotate Queue
-            </button>
-            <button 
-              className="glass-button" 
-              onClick={() => setWinnerCelebration(null)}
-              style={{ padding: "14px" }}
-            >
-              Continue Playing
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

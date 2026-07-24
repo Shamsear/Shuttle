@@ -53,6 +53,27 @@ export async function getRoomFromDb(code: string) {
   }
 }
 
+// Fetch all active rooms from Postgres
+export async function getAllRoomsFromDb() {
+  const sql = getDb();
+  if (!sql) return [];
+
+  try {
+    await initDb();
+    const result = await sql`
+      SELECT code, last_updated, state FROM rooms ORDER BY last_updated DESC
+    `;
+    return result.map(row => ({
+      code: row.code,
+      lastUpdated: Number(row.last_updated),
+      ...row.state
+    }));
+  } catch (error) {
+    console.error("Failed to fetch all rooms from database:", error);
+    return [];
+  }
+}
+
 // Save room state to Postgres
 export async function saveRoomToDb(code: string, state: any) {
   const sql = getDb();

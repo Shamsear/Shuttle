@@ -1,7 +1,25 @@
 import { NextResponse } from "next/server";
 import { rooms, RoomState } from "./store";
-import { saveRoomToDb, getDb } from "./db";
+import { saveRoomToDb, getAllRoomsFromDb, getDb } from "./db";
 
+// GET handler: fetch all active courts
+export async function GET() {
+  try {
+    const isDbConnected = getDb() !== null;
+    if (isDbConnected) {
+      const dbRooms = await getAllRoomsFromDb();
+      return NextResponse.json(dbRooms);
+    } else {
+      // In-memory fallback
+      const localRooms = Array.from(rooms.values());
+      return NextResponse.json(localRooms);
+    }
+  } catch (error: any) {
+    return NextResponse.json({ error: "Failed to fetch courts list" }, { status: 500 });
+  }
+}
+
+// POST handler: create a new court session
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -23,6 +41,7 @@ export async function POST(request: Request) {
 
     const roomState: RoomState = {
       code,
+      courtName: body.courtName || `Court ${code}`,
       lastUpdated: Date.now(),
       players: body.players || [],
       activePlayerIds: body.activePlayerIds || [],

@@ -28,6 +28,8 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
+import { SessionProvider } from "../context/SessionContext";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -42,7 +44,9 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
       <body>
-        {children}
+        <SessionProvider>
+          {children}
+        </SessionProvider>
         <Script
           id="sw-cleaner"
           strategy="afterInteractive"
