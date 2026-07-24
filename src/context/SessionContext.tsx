@@ -35,6 +35,8 @@ interface SessionContextType {
   
   // Roster Actions
   handleAddPlayer: (name: string) => void;
+  handleDeletePlayer: (id: string) => void;
+  handleRenamePlayer: (id: string, newName: string) => void;
   handleTogglePlayerActive: (id: string) => void;
   handleResetSession: () => void;
   
@@ -552,6 +554,48 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     saveActivePlayerIdsToStorage([...activePlayerIds, newPlayer.id]);
   };
 
+  const handleDeletePlayer = (id: string) => {
+    if (roomCode && roomRole === "viewer") return;
+    const isInMatch = activeMatch && [
+      ...activeMatch.left.players,
+      ...activeMatch.right.players,
+    ].some((p) => p?.id === id);
+    if (isInMatch) {
+      showDialog({ type: "alert", title: "Cannot Delete", message: "This player is currently in an active match. Finish or discard the match first." });
+      return;
+    }
+    const player = players.find((p) => p.id === id);
+    showDialog({
+      type: "confirm",
+      title: "Delete Player",
+      message: `Remove "${player?.name || "this player"}" from the roster? This cannot be undone.`,
+      onConfirm: () => {
+        const updatedPlayers = players.filter((p) => p.id !== id);
+        savePlayersToStorage(updatedPlayers);
+        const updatedActiveIds = activePlayerIds.filter((pid) => pid !== id);
+        saveActivePlayerIdsToStorage(updatedActiveIds);
+        const updatedQueue = queue.filter((p) => p.id !== id);
+        saveQueueToStorage(updatedQueue);
+        syncState({ queue: updatedQueue });
+      }
+    });
+  };
+
+  const handleRenamePlayer = (id: string, newName: string) => {
+    if (roomCode && roomRole === "viewer") return;
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    if (players.some((p) => p.id !== id && p.name.toLowerCase() === trimmed.toLowerCase())) {
+      showDialog({ type: "alert", title: "Duplicate Name", message: "A player with this name already exists!" });
+      return;
+    }
+    const updatedPlayers = players.map((p) => p.id === id ? { ...p, name: trimmed } : p);
+    savePlayersToStorage(updatedPlayers);
+    const updatedQueue = queue.map((p) => p.id === id ? { ...p, name: trimmed } : p);
+    saveQueueToStorage(updatedQueue);
+    syncState({ queue: updatedQueue });
+  };
+
   const handleTogglePlayerActive = (id: string) => {
     if (roomCode && roomRole === "viewer") return;
     let updated: string[];
@@ -894,6 +938,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setActiveMatch,
       
       handleAddPlayer,
+      handleDeletePlayer,
+      handleRenamePlayer,
       handleTogglePlayerActive,
       handleResetSession,
       handleStartMatch,

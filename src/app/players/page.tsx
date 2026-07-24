@@ -11,6 +11,7 @@ export default function PlayersPage() {
     activePlayerIds,
     sessionMatches,
     handleAddPlayer,
+    handleDeletePlayer,
     handleTogglePlayerActive,
   } = useSession();
 
@@ -43,6 +44,7 @@ export default function PlayersPage() {
           sessionMatches={sessionMatches}
           onAddPlayer={handleAddPlayer}
           onTogglePlayerActive={handleTogglePlayerActive}
+          onDeletePlayer={handleDeletePlayer}
           onClose={() => {
             // Programmatically go back to home screen
             window.location.href = "/";

@@ -30,6 +30,8 @@ interface PlayerPoolProps {
   sessionMatches: MatchRecord[];
   onAddPlayer: (name: string) => void;
   onTogglePlayerActive: (id: string) => void;
+  onDeletePlayer: (id: string) => void;
+  onRenamePlayer: (id: string, newName: string) => void;
   onClose: () => void;
 }
 
@@ -59,10 +61,14 @@ export default function PlayerPool({
   sessionMatches,
   onAddPlayer,
   onTogglePlayerActive,
+  onDeletePlayer,
+  onRenamePlayer,
   onClose,
 }: PlayerPoolProps) {
   const [newPlayerName, setNewPlayerName] = useState("");
   const [activeTab, setActiveTab] = useState<"checkin" | "all" | "analytics">("checkin");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -228,37 +234,123 @@ export default function PlayerPool({
           ) : (
             players.map((player) => {
               const isActive = activePlayerIds.includes(player.id);
+              const isEditing = editingId === player.id;
               return (
                 <div
                   key={player.id}
                   className={`player-row glass-panel ${isActive ? "selected" : ""}`}
-                  onClick={() => onTogglePlayerActive(player.id)}
-                  style={{ cursor: "pointer", padding: "12px 16px" }}
+                  style={{ padding: "12px 16px" }}
                 >
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: "0.95rem", display: "flex", alignItems: "center", gap: "8px" }}>
-                      {player.name}
-                      {isActive && <ActiveCheckIcon />}
-                    </div>
-                    <div className="player-stats-mini">
-                      <span className="player-stat-badge">Winrate: {getWinRate(player.stats)}</span>
-                      <span className="player-stat-badge">W/L: {player.stats.wins}/{player.stats.losses}</span>
-                      <span className="player-stat-badge">Errors: {player.stats.errors}</span>
-                    </div>
+                  <div
+                    style={{ flex: 1, cursor: isEditing ? "default" : "pointer" }}
+                    onClick={() => { if (!isEditing) onTogglePlayerActive(player.id); }}
+                  >
+                    {isEditing ? (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          onRenamePlayer(player.id, editName);
+                          setEditingId(null);
+                        }}
+                        style={{ display: "flex", gap: "6px", alignItems: "center" }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="text"
+                          className="text-input"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          autoFocus
+                          style={{ padding: "6px 10px", fontSize: "0.88rem", flex: 1 }}
+                          onKeyDown={(e) => { if (e.key === "Escape") setEditingId(null); }}
+                        />
+                        <button
+                          type="submit"
+                          className="glass-button"
+                          style={{ padding: "6px 10px", fontSize: "0.7rem", fontWeight: 700, color: "var(--color-point)", borderColor: "rgba(16, 185, 129, 0.3)" }}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className="glass-button"
+                          onClick={() => setEditingId(null)}
+                          style={{ padding: "6px 10px", fontSize: "0.7rem", fontWeight: 700 }}
+                        >
+                          Cancel
+                        </button>
+                      </form>
+                    ) : (
+                      <>
+                        <div style={{ fontWeight: 700, fontSize: "0.95rem", display: "flex", alignItems: "center", gap: "8px" }}>
+                          {player.name}
+                          {isActive && <ActiveCheckIcon />}
+                        </div>
+                        <div className="player-stats-mini">
+                          <span className="player-stat-badge">Winrate: {getWinRate(player.stats)}</span>
+                          <span className="player-stat-badge">W/L: {player.stats.wins}/{player.stats.losses}</span>
+                          <span className="player-stat-badge">Errors: {player.stats.errors}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
-                  <div style={{ 
-                    fontSize: "0.7rem", 
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                    padding: "4px 8px", 
-                    borderRadius: "8px", 
-                    background: isActive ? "rgba(16, 185, 129, 0.1)" : "rgba(255,255,255,0.02)",
-                    color: isActive ? "var(--color-point)" : "var(--text-muted)",
-                    border: isActive ? "1px solid rgba(16, 185, 129, 0.2)" : "1px solid transparent"
-                  }}>
-                    {isActive ? "Active" : "Check-in"}
-                  </div>
+                  {!isEditing && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div style={{
+                        fontSize: "0.7rem",
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        padding: "4px 8px",
+                        borderRadius: "8px",
+                        background: isActive ? "rgba(16, 185, 129, 0.1)" : "rgba(255,255,255,0.02)",
+                        color: isActive ? "var(--color-point)" : "var(--text-muted)",
+                        border: isActive ? "1px solid rgba(16, 185, 129, 0.2)" : "1px solid transparent",
+                        cursor: "pointer"
+                      }}
+                        onClick={() => onTogglePlayerActive(player.id)}
+                      >
+                        {isActive ? "Active" : "Check-in"}
+                      </div>
+                      <button
+                        className="glass-button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingId(player.id);
+                          setEditName(player.name);
+                        }}
+                        style={{
+                          padding: "4px 8px",
+                          fontSize: "0.7rem",
+                          fontWeight: 700,
+                          color: "var(--color-serve)",
+                          borderColor: "rgba(234, 179, 8, 0.2)",
+                          background: "rgba(234, 179, 8, 0.02)",
+                          lineHeight: 1
+                        }}
+                      >
+                        ✎
+                      </button>
+                      <button
+                        className="glass-button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeletePlayer(player.id);
+                        }}
+                        style={{
+                          padding: "4px 8px",
+                          fontSize: "0.7rem",
+                          fontWeight: 700,
+                          color: "var(--color-out)",
+                          borderColor: "rgba(244, 63, 94, 0.2)",
+                          background: "rgba(244, 63, 94, 0.02)",
+                          lineHeight: 1
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })
