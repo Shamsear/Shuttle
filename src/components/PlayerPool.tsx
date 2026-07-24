@@ -153,20 +153,8 @@ export default function PlayerPool({
       </form>
 
       {players.length === 0 && (
-        <div style={{ padding: "14px", background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.08)", borderRadius: "12px", textAlign: "center" }}>
-          <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "10px" }}>Roster is empty. Populate it instantly to test or start scoring!</p>
-          <button 
-            type="button" 
-            className="glass-button" 
-            style={{ width: "100%", padding: "10px", borderColor: "var(--color-serve)", color: "var(--color-serve)", fontWeight: 700, fontSize: "0.8rem" }}
-            onClick={() => {
-              ["Alice", "Bob", "Charlie", "David", "Emma", "Frank", "Grace", "Henry"].forEach(name => {
-                onAddPlayer(name);
-              });
-            }}
-          >
-            ⚡ Populate 8 Default Players
-          </button>
+        <div style={{ padding: "16px", background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.08)", borderRadius: "12px", textAlign: "center" }}>
+          <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: 0 }}>No players in roster. Add players using the input above to get started!</p>
         </div>
       )}
 

@@ -91,7 +91,7 @@ export async function initDb() {
   }
 }
 
-// Fetch room state from Postgres
+// Fetch room state from Postgres in a high-performance concurrent read pipeline
 export async function getRoomFromDb(code: string) {
   const sql = getDb();
   if (!sql) return null;
@@ -100,37 +100,29 @@ export async function getRoomFromDb(code: string) {
     await initDb(); // Graceful auto-init
     const cleanCode = code.toUpperCase();
 
-    // 1. Fetch room base
-    const roomRows = await sql`
-      SELECT code, court_name, last_updated FROM rooms WHERE code = ${cleanCode}
-    `;
+    // Fire all read queries concurrently in a single parallel batch request
+    const [roomRows, playerRows, queueRows, matchRows, activeMatchRows] = await Promise.all([
+      sql`SELECT code, court_name, last_updated FROM rooms WHERE code = ${cleanCode}`,
+      sql`SELECT id, name, wins, losses, errors, points FROM players WHERE room_code = ${cleanCode}`,
+      sql`SELECT player_id, position FROM queue WHERE room_code = ${cleanCode} ORDER BY position ASC`,
+      sql`SELECT id, date, mode, left_players, right_players, left_score, right_score, winner_side FROM matches WHERE room_code = ${cleanCode} ORDER BY id DESC`,
+      sql`SELECT active_match, winner_celebration FROM active_matches WHERE room_code = ${cleanCode}`
+    ]);
+
     if (roomRows.length === 0) return null;
     const room = roomRows[0];
 
-    // 2. Fetch players
-    const playerRows = await sql`
-      SELECT id, name, wins, losses, errors, points FROM players WHERE room_code = ${cleanCode}
-    `;
     const players = playerRows.map(p => ({
       id: p.id,
       name: p.name,
       stats: { wins: p.wins, losses: p.losses, errors: p.errors, points: p.points }
     }));
 
-    // 3. Fetch queue
-    const queueRows = await sql`
-      SELECT player_id, position FROM queue WHERE room_code = ${cleanCode} ORDER BY position ASC
-    `;
     const queue = queueRows.map(q => {
       const found = players.find(p => p.id === q.player_id);
       return found || { id: q.player_id, name: "Unknown", stats: { wins: 0, losses: 0, errors: 0, points: 0 } };
     });
 
-    // 4. Fetch session history matches
-    const matchRows = await sql`
-      SELECT id, date, mode, left_players, right_players, left_score, right_score, winner_side 
-      FROM matches WHERE room_code = ${cleanCode} ORDER BY id DESC
-    `;
     const sessionMatches = matchRows.map(m => ({
       id: m.id,
       date: m.date,
@@ -142,10 +134,6 @@ export async function getRoomFromDb(code: string) {
       winnerSide: m.winner_side
     }));
 
-    // 5. Fetch active match metadata
-    const activeMatchRows = await sql`
-      SELECT active_match, winner_celebration FROM active_matches WHERE room_code = ${cleanCode}
-    `;
     const activeMatch = activeMatchRows.length > 0 ? activeMatchRows[0].active_match : null;
     const winnerCelebration = activeMatchRows.length > 0 ? activeMatchRows[0].winner_celebration : null;
 
