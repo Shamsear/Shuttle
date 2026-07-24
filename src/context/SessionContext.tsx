@@ -52,6 +52,7 @@ interface SessionContextType {
   handleDisconnectRoom: () => void;
   handleToggleVoice: () => void;
   getDailyLeaderboard: () => any[];
+  recentCourtsLoading: boolean;
 }
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
@@ -72,6 +73,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [roomRole, setRoomRole] = useState<"host" | "viewer" | null>(null);
   const [courtName, setCourtName] = useState<string | null>(null);
   const [recentCourts, setRecentCourts] = useState<{ code: string; name: string }[]>([]);
+  const [recentCourtsLoading, setRecentCourtsLoading] = useState<boolean>(false);
   const [isRoomCreator, setIsRoomCreator] = useState<boolean>(false);
   const [peerInstance, setPeerInstance] = useState<any>(null);
   const [activeConnections, setActiveConnections] = useState<any[]>([]);
@@ -147,27 +149,35 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         try {
           const parsed = JSON.parse(savedRecents);
           setRecentCourts(parsed);
+          if (parsed.length > 0) {
+            setRecentCourtsLoading(true);
+          }
           
           // Asynchronously verify that each room still exists on the server
           (async () => {
-            const validated: any[] = [];
-            for (const c of parsed) {
-              try {
-                const res = await fetch(`/api/room/${c.code}`, { cache: "no-store" });
-                if (res.ok) {
-                  validated.push(c);
+            try {
+              const validated: any[] = [];
+              for (const c of parsed) {
+                try {
+                  const res = await fetch(`/api/room/${c.code}`, { cache: "no-store" });
+                  if (res.ok) {
+                    validated.push(c);
+                  }
+                } catch (e) {
+                  validated.push(c); // keep it on network errors to prevent false-positives
                 }
-              } catch (e) {
-                validated.push(c); // keep it on network errors to prevent false-positives
               }
-            }
-            if (validated.length !== parsed.length) {
-              setRecentCourts(validated);
-              localStorage.setItem("shuttle_recent_courts", JSON.stringify(validated));
+              if (validated.length !== parsed.length) {
+                setRecentCourts(validated);
+                localStorage.setItem("shuttle_recent_courts", JSON.stringify(validated));
+              }
+            } finally {
+              setRecentCourtsLoading(false);
             }
           })();
         } catch (err) {
           localStorage.removeItem("shuttle_recent_courts");
+          setRecentCourtsLoading(false);
         }
       }
     } catch (error) {
@@ -828,6 +838,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       roomRole,
       courtName,
       recentCourts,
+      recentCourtsLoading,
       voiceEnabled,
       isSyncing,
       syncError,

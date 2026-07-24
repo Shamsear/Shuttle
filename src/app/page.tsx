@@ -15,6 +15,7 @@ export default function HomePage() {
     roomRole,
     courtName,
     recentCourts,
+    recentCourtsLoading,
     syncError,
     joinInput,
     setJoinInput,
@@ -157,39 +158,67 @@ export default function HomePage() {
                   ⏳ Quick Rejoin Recent Courts
                 </span>
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                  {recentCourts.map((c) => (
-                    <div 
-                      key={c.code} 
-                      className="glass-panel" 
-                      style={{ 
-                        padding: "10px 14px", 
-                        background: "rgba(255,255,255,0.015)", 
-                        border: "1px solid rgba(255,255,255,0.05)",
-                        borderRadius: "10px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: "12px"
-                      }}
-                    >
-                      <div style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
-                        <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "white", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {c.name}
-                        </div>
-                        <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontFamily: "monospace" }}>
-                          Invite Code: {c.code}
-                        </div>
-                      </div>
-                      
-                      <button 
-                        className="glass-button" 
-                        onClick={() => handleJoinRoom(c.code)}
-                        style={{ padding: "6px 12px", fontSize: "0.72rem", fontWeight: 700, borderColor: "var(--color-serve)", color: "var(--color-serve)" }}
+                  {recentCourtsLoading ? (
+                    // Pulse animation skeleton indicators
+                    recentCourts.map((c) => (
+                      <div 
+                        key={c.code} 
+                        className="glass-panel" 
+                        style={{ 
+                          padding: "14px", 
+                          background: "rgba(255,255,255,0.015)", 
+                          border: "1px solid rgba(255,255,255,0.04)",
+                          borderRadius: "10px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          opacity: 0.6,
+                          animation: "pulse 1.5s infinite ease-in-out"
+                        }}
                       >
-                        Enter Court
-                      </button>
-                    </div>
-                  ))}
+                        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "6px" }}>
+                          <div style={{ height: "12px", width: "40%", background: "rgba(255,255,255,0.08)", borderRadius: "4px" }} />
+                          <div style={{ height: "8px", width: "25%", background: "rgba(255,255,255,0.05)", borderRadius: "3px" }} />
+                        </div>
+                        <div style={{ height: "26px", width: "80px", background: "rgba(255,255,255,0.08)", borderRadius: "6px" }} />
+                      </div>
+                    ))
+                  ) : (
+                    recentCourts.map((c) => (
+                      <div 
+                        key={c.code} 
+                        className="glass-panel" 
+                        style={{ 
+                          padding: "10px 14px", 
+                          background: "rgba(255,255,255,0.015)", 
+                          border: "1px solid rgba(255,255,255,0.05)",
+                          borderRadius: "10px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "12px"
+                        }}
+                      >
+                        <div style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
+                          <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "white", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {c.name}
+                          </div>
+                          <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontFamily: "monospace" }}>
+                            Invite Code: {c.code}
+                          </div>
+                        </div>
+                        
+                        <button 
+                          className="glass-button" 
+                          onClick={() => handleJoinRoom(c.code)}
+                          style={{ padding: "6px 12px", fontSize: "0.72rem", fontWeight: 700, borderColor: "var(--color-serve)", color: "var(--color-serve)" }}
+                        >
+                          Enter Court
+                        </button>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}

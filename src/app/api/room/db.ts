@@ -9,23 +9,43 @@ export function getDb() {
   return neon(url);
 }
 
+let isDbInitialized = false;
+
 // Initialise normalized database tables if they don't exist yet
 export async function initDb() {
+  if (isDbInitialized) return true;
+  
   const sql = getDb();
   if (!sql) return false;
   
   try {
-    // 1. Rooms
+    // Check if the old table schema exists (lacking court_name column)
+    const checkColumns = await sql`
+      SELECT column_name FROM information_schema.columns 
+      WHERE table_name = 'rooms' AND column_name = 'court_name'
+    `;
+    
+    // If the rooms table exists but does not have the 'court_name' column, drop it to recreate the new relational schema
+    if (checkColumns.length === 0) {
+      const checkTableExists = await sql`
+        SELECT table_name FROM information_schema.tables WHERE table_name = 'rooms'
+      `;
+      if (checkTableExists.length > 0) {
+        console.log("Migration: Dropping old rooms table to apply new relational schema...");
+        await sql`DROP TABLE IF EXISTS rooms CASCADE`;
+      }
+    }
+
+    // Execute all table creations inside a single network round-trip query execution
     await sql`
       CREATE TABLE IF NOT EXISTS rooms (
         code VARCHAR(6) PRIMARY KEY,
         court_name VARCHAR(255) NOT NULL,
         last_updated BIGINT NOT NULL
       );
-    `;
+      
+      ALTER TABLE rooms DROP COLUMN IF EXISTS state;
 
-    // 2. Players
-    await sql`
       CREATE TABLE IF NOT EXISTS players (
         id VARCHAR(50) NOT NULL,
         room_code VARCHAR(6) NOT NULL REFERENCES rooms(code) ON DELETE CASCADE,
@@ -36,20 +56,14 @@ export async function initDb() {
         points INT DEFAULT 0,
         PRIMARY KEY (id, room_code)
       );
-    `;
 
-    // 3. Queue Positions
-    await sql`
       CREATE TABLE IF NOT EXISTS queue (
         room_code VARCHAR(6) NOT NULL REFERENCES rooms(code) ON DELETE CASCADE,
         player_id VARCHAR(50) NOT NULL,
         position INT NOT NULL,
         PRIMARY KEY (room_code, player_id)
       );
-    `;
 
-    // 4. Match Records
-    await sql`
       CREATE TABLE IF NOT EXISTS matches (
         id VARCHAR(50) PRIMARY KEY,
         room_code VARCHAR(6) NOT NULL REFERENCES rooms(code) ON DELETE CASCADE,
@@ -61,10 +75,7 @@ export async function initDb() {
         right_score INT NOT NULL,
         winner_side VARCHAR(10) NOT NULL
       );
-    `;
 
-    // 5. Active Matches & Winner Celebrations
-    await sql`
       CREATE TABLE IF NOT EXISTS active_matches (
         room_code VARCHAR(6) PRIMARY KEY REFERENCES rooms(code) ON DELETE CASCADE,
         active_match JSONB,
@@ -72,6 +83,7 @@ export async function initDb() {
       );
     `;
 
+    isDbInitialized = true;
     return true;
   } catch (error) {
     console.error("Failed to initialise database tables:", error);
