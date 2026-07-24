@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import Link from "next/link";
 import { ScoringSystem } from "../utils/badmintonEngine";
 import { Player } from "./PlayerPool";
 
@@ -13,6 +14,12 @@ interface MatchSetupProps {
     rightPlayers: Player[];
   }) => void;
   onCancel: () => void;
+  showDialog: (config: {
+    type: "alert" | "confirm";
+    title: string;
+    message: string;
+    onConfirm?: () => void;
+  }) => void;
 }
 
 // Icons
@@ -45,6 +52,7 @@ export default function MatchSetup({
   defaultScoringSystem,
   onStartMatch,
   onCancel,
+  showDialog,
 }: MatchSetupProps) {
   const [mode, setMode] = useState<"singles" | "doubles">("singles");
   const [scoringSystem, setScoringSystem] = useState<ScoringSystem>(defaultScoringSystem);
@@ -84,7 +92,7 @@ export default function MatchSetup({
     for (let i = 0; i < leftCount; i++) {
       const id = leftPlayerIds[i];
       if (!id) {
-        alert(`Choose Player ${i + 1} for Team A (Bottom)`);
+        showDialog({ type: "alert", title: "Missing Player", message: `Choose Player ${i + 1} for Team A (Bottom)` });
         return;
       }
       const player = activePlayers.find((p) => p.id === id);
@@ -94,7 +102,7 @@ export default function MatchSetup({
     for (let i = 0; i < rightCount; i++) {
       const id = rightPlayerIds[i];
       if (!id) {
-        alert(`Choose Player ${i + 1} for Team B (Top)`);
+        showDialog({ type: "alert", title: "Missing Player", message: `Choose Player ${i + 1} for Team B (Top)` });
         return;
       }
       const player = activePlayers.find((p) => p.id === id);
@@ -104,7 +112,7 @@ export default function MatchSetup({
     const allSelectedIds = [...selectedLeft, ...selectedRight].map((p) => p.id);
     const uniqueSelectedIds = new Set(allSelectedIds);
     if (allSelectedIds.length !== uniqueSelectedIds.size) {
-      alert("A player cannot be selected multiple times in a match!");
+      showDialog({ type: "alert", title: "Duplicate Selection", message: "A player cannot be selected multiple times in a match!" });
       return;
     }
 
@@ -191,6 +199,44 @@ export default function MatchSetup({
       </div>
     );
   };
+
+  if (activePlayers.length < 2) {
+    return (
+      <div className="setup-container flex-col gap-20" style={{ textAlign: "center", padding: "30px 20px" }}>
+        <div style={{ fontSize: "2.5rem", marginBottom: "10px" }}>⚠️</div>
+        <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "white", marginBottom: "8px" }}>
+          Insufficient Checked-In Players
+        </h3>
+        <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", lineHeight: "1.4", marginBottom: "20px" }}>
+          A badminton match requires at least 2 checked-in players. Please go to the Roster page to register and check in players.
+        </p>
+        <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
+          <button 
+            className="glass-button" 
+            style={{ padding: "10px 20px", fontSize: "0.8rem", fontWeight: 700 }}
+            onClick={onCancel}
+          >
+            Go Back
+          </button>
+          <Link 
+            href="/players" 
+            className="glass-button" 
+            style={{ 
+              padding: "10px 20px", 
+              fontSize: "0.8rem", 
+              fontWeight: 700, 
+              color: "var(--color-serve)", 
+              borderColor: "var(--color-serve)",
+              background: "rgba(234, 179, 8, 0.02)",
+              textDecoration: "none"
+            }}
+          >
+            Manage Roster
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="setup-container flex-col gap-20">

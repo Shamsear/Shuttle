@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "../context/SessionContext";
 
 export default function HomePage() {
@@ -23,10 +24,14 @@ export default function HomePage() {
     handleJoinRoom,
     handleDisconnectRoom,
     handleResetSession,
-    getDailyLeaderboard
+    getDailyLeaderboard,
+    showDialog
   } = useSession();
 
   const [courtNameInput, setCourtNameInput] = React.useState("");
+  const router = useRouter();
+
+  const activePlayers = players.filter((p) => activePlayerIds.includes(p.id));
 
   return (
     <div className="app-container">
@@ -98,7 +103,7 @@ export default function HomePage() {
                       className="glass-button" 
                       onClick={() => {
                         if (!courtNameInput.trim()) {
-                          alert("Please enter a name for the court.");
+                          showDialog({ type: "alert", title: "Missing Name", message: "Please enter a name for the court." });
                           return;
                         }
                         handleCreateRoom(courtNameInput.trim());
@@ -268,13 +273,23 @@ export default function HomePage() {
                   ⚡ Active Match Board
                 </Link>
               ) : (
-                <Link 
-                  href="/setup" 
+                <button
                   className="primary-action-btn"
-                  style={{ textDecoration: "none", display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "center" }}
+                  onClick={() => {
+                    if (activePlayers.length < 2) {
+                      showDialog({
+                        type: "alert",
+                        title: "Insufficient Players",
+                        message: "A badminton match requires at least 2 checked-in players. Please go to the Roster page to register and check in players."
+                      });
+                      return;
+                    }
+                    router.push("/setup");
+                  }}
+                  style={{ display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "center" }}
                 >
                   New Match
-                </Link>
+                </button>
               )}
             </div>
 
@@ -306,7 +321,7 @@ export default function HomePage() {
                       style={{ padding: "6px 10px", fontSize: "0.72rem", borderColor: "rgba(255,255,255,0.12)" }}
                       onClick={() => {
                         navigator.clipboard.writeText(roomCode);
-                        alert("Invite code copied!");
+                        showDialog({ type: "alert", title: "Copied", message: "Invite code copied!" });
                       }}
                     >
                       Copy
@@ -326,7 +341,7 @@ export default function HomePage() {
                           } catch (err) {}
                         } else {
                           navigator.clipboard.writeText(shareUrl);
-                          alert("Direct share link copied to clipboard!");
+                          showDialog({ type: "alert", title: "Copied", message: "Direct share link copied to clipboard!" });
                         }
                       }}
                     >

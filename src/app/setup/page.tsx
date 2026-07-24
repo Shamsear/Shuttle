@@ -12,6 +12,7 @@ export default function SetupPage() {
     activePlayerIds,
     queue,
     handleStartMatch,
+    showDialog,
   } = useSession();
   const router = useRouter();
 
@@ -44,6 +45,7 @@ export default function SetupPage() {
           activePlayers={activePlayers}
           queue={queue}
           defaultScoringSystem="classic"
+          showDialog={showDialog}
           onStartMatch={(config) => {
             handleStartMatch(config);
             router.push("/scoreboard");

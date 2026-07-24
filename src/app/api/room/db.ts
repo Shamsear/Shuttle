@@ -36,52 +36,60 @@ export async function initDb() {
       }
     }
 
-    // Execute all table creations inside a single network round-trip query execution
+    // Create the base rooms table first to satisfy foreign key constraints
     await sql`
       CREATE TABLE IF NOT EXISTS rooms (
         code VARCHAR(6) PRIMARY KEY,
         court_name VARCHAR(255) NOT NULL,
         last_updated BIGINT NOT NULL
       );
-      
-      ALTER TABLE rooms DROP COLUMN IF EXISTS state;
-
-      CREATE TABLE IF NOT EXISTS players (
-        id VARCHAR(50) NOT NULL,
-        room_code VARCHAR(6) NOT NULL REFERENCES rooms(code) ON DELETE CASCADE,
-        name VARCHAR(100) NOT NULL,
-        wins INT DEFAULT 0,
-        losses INT DEFAULT 0,
-        errors INT DEFAULT 0,
-        points INT DEFAULT 0,
-        PRIMARY KEY (id, room_code)
-      );
-
-      CREATE TABLE IF NOT EXISTS queue (
-        room_code VARCHAR(6) NOT NULL REFERENCES rooms(code) ON DELETE CASCADE,
-        player_id VARCHAR(50) NOT NULL,
-        position INT NOT NULL,
-        PRIMARY KEY (room_code, player_id)
-      );
-
-      CREATE TABLE IF NOT EXISTS matches (
-        id VARCHAR(50) PRIMARY KEY,
-        room_code VARCHAR(6) NOT NULL REFERENCES rooms(code) ON DELETE CASCADE,
-        date VARCHAR(50) NOT NULL,
-        mode VARCHAR(20) NOT NULL,
-        left_players JSONB NOT NULL,
-        right_players JSONB NOT NULL,
-        left_score INT NOT NULL,
-        right_score INT NOT NULL,
-        winner_side VARCHAR(10) NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS active_matches (
-        room_code VARCHAR(6) PRIMARY KEY REFERENCES rooms(code) ON DELETE CASCADE,
-        active_match JSONB,
-        winner_celebration JSONB
-      );
     `;
+    
+    await sql`ALTER TABLE rooms DROP COLUMN IF EXISTS state;`;
+
+    // Create the child relational tables concurrently in parallel
+    await Promise.all([
+      sql`
+        CREATE TABLE IF NOT EXISTS players (
+          id VARCHAR(50) NOT NULL,
+          room_code VARCHAR(6) NOT NULL REFERENCES rooms(code) ON DELETE CASCADE,
+          name VARCHAR(100) NOT NULL,
+          wins INT DEFAULT 0,
+          losses INT DEFAULT 0,
+          errors INT DEFAULT 0,
+          points INT DEFAULT 0,
+          PRIMARY KEY (id, room_code)
+        );
+      `,
+      sql`
+        CREATE TABLE IF NOT EXISTS queue (
+          room_code VARCHAR(6) NOT NULL REFERENCES rooms(code) ON DELETE CASCADE,
+          player_id VARCHAR(50) NOT NULL,
+          position INT NOT NULL,
+          PRIMARY KEY (room_code, player_id)
+        );
+      `,
+      sql`
+        CREATE TABLE IF NOT EXISTS matches (
+          id VARCHAR(50) PRIMARY KEY,
+          room_code VARCHAR(6) NOT NULL REFERENCES rooms(code) ON DELETE CASCADE,
+          date VARCHAR(50) NOT NULL,
+          mode VARCHAR(20) NOT NULL,
+          left_players JSONB NOT NULL,
+          right_players JSONB NOT NULL,
+          left_score INT NOT NULL,
+          right_score INT NOT NULL,
+          winner_side VARCHAR(10) NOT NULL
+        );
+      `,
+      sql`
+        CREATE TABLE IF NOT EXISTS active_matches (
+          room_code VARCHAR(6) PRIMARY KEY REFERENCES rooms(code) ON DELETE CASCADE,
+          active_match JSONB,
+          winner_celebration JSONB
+        );
+      `
+    ]);
 
     isDbInitialized = true;
     return true;
@@ -220,13 +228,16 @@ export async function saveRoomToDb(code: string, state: any) {
       }));
 
       updates.push(
-        sql`
-          DELETE FROM players WHERE room_code = ${cleanCode};
-          INSERT INTO players (id, room_code, name, wins, losses, errors, points)
-          SELECT id, room_code, name, wins, losses, errors, points
-          FROM jsonb_to_recordset(${JSON.stringify(playerRecords)}::jsonb)
-          AS x(id VARCHAR, room_code VARCHAR, name VARCHAR, wins INT, losses INT, errors INT, points INT);
-        `
+        sql`DELETE FROM players WHERE room_code = ${cleanCode}`.then(() =>
+          playerRecords.length > 0
+            ? sql`
+                INSERT INTO players (id, room_code, name, wins, losses, errors, points)
+                SELECT id, room_code, name, wins, losses, errors, points
+                FROM jsonb_to_recordset(${JSON.stringify(playerRecords)}::jsonb)
+                AS x(id VARCHAR, room_code VARCHAR, name VARCHAR, wins INT, losses INT, errors INT, points INT)
+              `
+            : Promise.resolve()
+        )
       );
     }
 
@@ -239,19 +250,21 @@ export async function saveRoomToDb(code: string, state: any) {
       }));
 
       updates.push(
-        sql`
-          DELETE FROM queue WHERE room_code = ${cleanCode};
-          INSERT INTO queue (room_code, player_id, position)
-          SELECT room_code, player_id, position
-          FROM jsonb_to_recordset(${JSON.stringify(queueRecords)}::jsonb)
-          AS x(room_code VARCHAR, player_id VARCHAR, position INT);
-        `
+        sql`DELETE FROM queue WHERE room_code = ${cleanCode}`.then(() =>
+          queueRecords.length > 0
+            ? sql`
+                INSERT INTO queue (room_code, player_id, position)
+                SELECT room_code, player_id, position
+                FROM jsonb_to_recordset(${JSON.stringify(queueRecords)}::jsonb)
+                AS x(room_code VARCHAR, player_id VARCHAR, position INT)
+              `
+            : Promise.resolve()
+        )
       );
     }
 
     // C. Matches batch update
     if (state.sessionMatches) {
-      const matchIds = state.sessionMatches.map((m: any) => m.id);
       const matchRecords = state.sessionMatches.map((m: any) => ({
         id: m.id,
         room_code: cleanCode,
@@ -264,26 +277,28 @@ export async function saveRoomToDb(code: string, state: any) {
         winner_side: m.winnerSide
       }));
 
-      if (matchIds.length > 0) {
+      if (matchRecords.length > 0) {
+        const matchIds = state.sessionMatches.map((m: any) => m.id);
         updates.push(
-          sql`
-            DELETE FROM matches WHERE room_code = ${cleanCode} AND id NOT IN (${matchIds});
-            INSERT INTO matches (id, room_code, date, mode, left_players, right_players, left_score, right_score, winner_side)
-            SELECT id, room_code, date, mode, left_players, right_players, left_score, right_score, winner_side
-            FROM jsonb_to_recordset(${JSON.stringify(matchRecords)}::jsonb)
-            AS x(id VARCHAR, room_code VARCHAR, date VARCHAR, mode VARCHAR, left_players JSONB, right_players JSONB, left_score INT, right_score INT, winner_side VARCHAR)
-            ON CONFLICT (id) DO UPDATE
-            SET date = EXCLUDED.date,
-                mode = EXCLUDED.mode,
-                left_players = EXCLUDED.left_players,
-                right_players = EXCLUDED.right_players,
-                left_score = EXCLUDED.left_score,
-                right_score = EXCLUDED.right_score,
-                winner_side = EXCLUDED.winner_side;
-          `
+          sql`DELETE FROM matches WHERE room_code = ${cleanCode} AND id NOT IN (${matchIds})`.then(() =>
+            sql`
+              INSERT INTO matches (id, room_code, date, mode, left_players, right_players, left_score, right_score, winner_side)
+              SELECT id, room_code, date, mode, left_players, right_players, left_score, right_score, winner_side
+              FROM jsonb_to_recordset(${JSON.stringify(matchRecords)}::jsonb)
+              AS x(id VARCHAR, room_code VARCHAR, date VARCHAR, mode VARCHAR, left_players JSONB, right_players JSONB, left_score INT, right_score INT, winner_side VARCHAR)
+              ON CONFLICT (id) DO UPDATE
+              SET date = EXCLUDED.date,
+                  mode = EXCLUDED.mode,
+                  left_players = EXCLUDED.left_players,
+                  right_players = EXCLUDED.right_players,
+                  left_score = EXCLUDED.left_score,
+                  right_score = EXCLUDED.right_score,
+                  winner_side = EXCLUDED.winner_side
+            `
+          )
         );
       } else {
-        updates.push(sql`DELETE FROM matches WHERE room_code = ${cleanCode};`);
+        updates.push(sql`DELETE FROM matches WHERE room_code = ${cleanCode}`);
       }
     }
 

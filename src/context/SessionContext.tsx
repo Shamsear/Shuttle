@@ -12,6 +12,7 @@ import {
   swapSides 
 } from "../utils/badmintonEngine";
 import { announceScore, triggerHaptic } from "../utils/refereeDevice";
+import { CustomDialogModal } from "../components/Modal";
 
 interface SessionContextType {
   players: Player[];
@@ -53,6 +54,13 @@ interface SessionContextType {
   handleToggleVoice: () => void;
   getDailyLeaderboard: () => any[];
   recentCourtsLoading: boolean;
+  showDialog: (config: {
+    type: "alert" | "confirm";
+    title: string;
+    message: string;
+    onConfirm?: () => void;
+    onCancel?: () => void;
+  }) => void;
 }
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
@@ -75,6 +83,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [recentCourts, setRecentCourts] = useState<{ code: string; name: string }[]>([]);
   const [recentCourtsLoading, setRecentCourtsLoading] = useState<boolean>(false);
   const [isRoomCreator, setIsRoomCreator] = useState<boolean>(false);
+  const [dialog, setDialog] = useState<{
+    type: "alert" | "confirm";
+    title: string;
+    message: string;
+    onConfirm?: () => void;
+    onCancel?: () => void;
+  } | null>(null);
   const [peerInstance, setPeerInstance] = useState<any>(null);
   const [activeConnections, setActiveConnections] = useState<any[]>([]);
   const [hostConnection, setHostConnection] = useState<any>(null);
@@ -83,6 +98,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [lastServerUpdate, setLastServerUpdate] = useState<number>(0);
   const [joinInput, setJoinInput] = useState<string>("");
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(false);
+
+  const showDialog = (config: {
+    type: "alert" | "confirm";
+    title: string;
+    message: string;
+    onConfirm?: () => void;
+    onCancel?: () => void;
+  }) => {
+    setDialog(config);
+  };
 
   // 1. Storage helpers
   const savePlayersToStorage = (updated: Player[]) => {
@@ -404,15 +429,28 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         // Add to recent list
         addToRecentCourts(data.code, courtNameInput);
         
-        alert(`Court "${courtNameInput}" created! Invite Code: ${data.code}`);
+        let msg = `Court "${courtNameInput}" created! Invite Code: ${data.code}`;
         if (!data.cloud) {
-          alert("⚠️ Database Offline: The server is running without a database connection. Add DATABASE_URL to your Vercel Environment Variables to enable persistent multi-user court syncing.");
+          msg += "\n\n⚠️ Database Offline: The server is running without a database connection. Add DATABASE_URL to your Vercel Environment Variables to enable persistent multi-user court syncing.";
         }
+        showDialog({
+          type: "alert",
+          title: "Court Created",
+          message: msg
+        });
       } else {
-        alert("Failed to create court.");
+        showDialog({
+          type: "alert",
+          title: "Error",
+          message: "Failed to create court."
+        });
       }
     } catch (err) {
-      alert("Error connecting to server.");
+      showDialog({
+        type: "alert",
+        title: "Connection Error",
+        message: "Error connecting to server."
+      });
     }
   };
 
@@ -428,7 +466,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const handleJoinRoom = async (code: string) => {
     const cleanCode = code.trim().toUpperCase();
     if (!cleanCode || cleanCode.length !== 6) {
-      alert("Please enter a valid 6-character invite code.");
+      showDialog({ type: "alert", title: "Invalid Code", message: "Please enter a valid 6-character invite code." });
       return;
     }
     try {
@@ -454,30 +492,34 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem("shuttle_is_creator", "false");
         setJoinInput("");
 
-        // Add to recent list
         addToRecentCourts(cleanCode, resolvedName);
 
-        alert(`Successfully joined court: ${resolvedName}!`);
+        showDialog({ type: "alert", title: "Court Joined", message: `Successfully joined court: ${resolvedName}!` });
       } else {
-        alert("Invite room not found. Check the code and try again.");
+        showDialog({ type: "alert", title: "Not Found", message: "Invite room not found. Check the code and try again." });
       }
     } catch (err) {
-      alert("Error connecting to server.");
+      showDialog({ type: "alert", title: "Connection Error", message: "Error connecting to server." });
     }
   };
 
   const handleDisconnectRoom = () => {
-    if (confirm("Disconnect from cloud session? Your local device will keep the current session state, but edits will no longer sync.")) {
-      setRoomCode(null);
-      setRoomRole(null);
-      setCourtName(null);
-      setIsRoomCreator(false);
-      localStorage.removeItem("shuttle_room_code");
-      localStorage.removeItem("shuttle_room_role");
-      localStorage.removeItem("shuttle_court_name");
-      localStorage.removeItem("shuttle_is_creator");
-      localStorage.removeItem("shuttle_last_server_update");
-    }
+    showDialog({
+      type: "confirm",
+      title: "Disconnect Court",
+      message: "Disconnect from cloud session? Your local device will keep the current session state, but edits will no longer sync.",
+      onConfirm: () => {
+        setRoomCode(null);
+        setRoomRole(null);
+        setCourtName(null);
+        setIsRoomCreator(false);
+        localStorage.removeItem("shuttle_room_code");
+        localStorage.removeItem("shuttle_room_role");
+        localStorage.removeItem("shuttle_court_name");
+        localStorage.removeItem("shuttle_is_creator");
+        localStorage.removeItem("shuttle_last_server_update");
+      }
+    });
   };
 
   const handleToggleVoice = () => {
@@ -497,7 +539,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const handleAddPlayer = (name: string) => {
     if (roomCode && roomRole === "viewer") return;
     if (players.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
-      alert("A player with this name already exists!");
+      showDialog({ type: "alert", title: "Duplicate Player", message: "A player with this name already exists!" });
       return;
     }
     const newPlayer: Player = {
@@ -523,11 +565,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   const handleResetSession = () => {
     if (roomCode && roomRole === "viewer") return;
-    if (confirm("Reset current day? This clears today's match history and resets player queues, but keeps all players in the database.")) {
-      saveMatchesToStorage([]);
-      const activePlayers = players.filter((p) => activePlayerIds.includes(p.id));
-      saveQueueToStorage(activePlayers);
-    }
+    showDialog({
+      type: "confirm",
+      title: "Reset Session",
+      message: "Reset current day? This clears today's match history and resets player queues, but keeps all players in the database.",
+      onConfirm: () => {
+        saveMatchesToStorage([]);
+        const activePlayers = players.filter((p) => activePlayerIds.includes(p.id));
+        saveQueueToStorage(activePlayers);
+      }
+    });
   };
 
   // 6. Match Logic Actions
@@ -690,25 +737,30 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   const handleDiscardMatch = () => {
     if (roomCode && roomRole === "viewer") return;
-    if (confirm("Are you sure you want to discard this match and its stats?")) {
-      if (activeMatch) {
-        const allMatchPlayers = [
-          ...activeMatch.left.players,
-          ...activeMatch.right.players,
-        ].filter((p) => p !== null) as Player[];
+    showDialog({
+      type: "confirm",
+      title: "Discard Match",
+      message: "Are you sure you want to discard this match and its stats?",
+      onConfirm: () => {
+        if (activeMatch) {
+          const allMatchPlayers = [
+            ...activeMatch.left.players,
+            ...activeMatch.right.players,
+          ].filter((p) => p !== null) as Player[];
 
-        const nextQueue = [...queue];
-        allMatchPlayers.forEach((p) => {
-          if (!nextQueue.some((qp) => qp.id === p.id)) {
-            nextQueue.push(p);
-          }
-        });
-        saveQueueToStorage(nextQueue);
+          const nextQueue = [...queue];
+          allMatchPlayers.forEach((p) => {
+            if (!nextQueue.some((qp) => qp.id === p.id)) {
+              nextQueue.push(p);
+            }
+          });
+          saveQueueToStorage(nextQueue);
+        }
+        setActiveMatch(null);
+        setWinnerCelebration(null);
+        syncState({ activeMatch: null, winnerCelebration: null });
       }
-      setActiveMatch(null);
-      setWinnerCelebration(null);
-      syncState({ activeMatch: null, winnerCelebration: null });
-    }
+    });
   };
 
   const handleUndoAction = () => {
@@ -855,9 +907,26 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       handleJoinRoom,
       handleDisconnectRoom,
       handleToggleVoice,
-      getDailyLeaderboard
+      getDailyLeaderboard,
+      showDialog
     }}>
       {children}
+      {dialog && (
+        <CustomDialogModal
+          isOpen={!!dialog}
+          type={dialog.type}
+          title={dialog.title}
+          message={dialog.message}
+          onConfirm={() => {
+            if (dialog.onConfirm) dialog.onConfirm();
+            setDialog(null);
+          }}
+          onClose={() => {
+            if (dialog.onCancel) dialog.onCancel();
+            setDialog(null);
+          }}
+        />
+      )}
     </SessionContext.Provider>
   );
 }
