@@ -82,16 +82,22 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [joinInput, setJoinInput] = useState<string>("");
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(false);
 
+  // Helper to resolve localStorage key names based on active room code
+  const getStorageKey = (base: string, customCode?: string | null) => {
+    const code = customCode !== undefined ? customCode : roomCode;
+    return code ? `shuttle_${code.toUpperCase()}_${base}` : `shuttle_local_${base}`;
+  };
+
   // 1. Storage helpers
   const savePlayersToStorage = (updated: Player[]) => {
     setPlayers(updated);
-    localStorage.setItem("shuttle_players", JSON.stringify(updated));
+    localStorage.setItem(getStorageKey("players"), JSON.stringify(updated));
     syncState({ players: updated });
   };
 
   const saveActivePlayerIdsToStorage = (updated: string[]) => {
     setActivePlayerIds(updated);
-    localStorage.setItem("shuttle_active_player_ids", JSON.stringify(updated));
+    localStorage.setItem(getStorageKey("active_player_ids"), JSON.stringify(updated));
     // Re-sync queue to match active roster
     const activePlayers = players.filter((p) => updated.includes(p.id));
     const nextQueue = activePlayers.filter((p) => {
@@ -109,24 +115,25 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   const saveMatchesToStorage = (updated: any[]) => {
     setSessionMatches(updated);
-    localStorage.setItem("shuttle_session_matches", JSON.stringify(updated));
+    localStorage.setItem(getStorageKey("session_matches"), JSON.stringify(updated));
     syncState({ sessionMatches: updated });
   };
 
   const saveQueueToStorage = (updated: Player[]) => {
     setQueue(updated);
-    localStorage.setItem("shuttle_queue", JSON.stringify(updated));
+    localStorage.setItem(getStorageKey("queue"), JSON.stringify(updated));
   };
 
   // 2. Load from storage on mount
   useEffect(() => {
     try {
-      const savedPlayers = localStorage.getItem("shuttle_players");
-      const savedActiveIds = localStorage.getItem("shuttle_active_player_ids");
-      const savedMatches = localStorage.getItem("shuttle_session_matches");
-      const savedQueue = localStorage.getItem("shuttle_queue");
       const savedRoomCode = localStorage.getItem("shuttle_room_code");
-      const savedLastUpdate = localStorage.getItem("shuttle_last_server_update");
+      const keyPrefix = savedRoomCode ? `shuttle_${savedRoomCode.toUpperCase()}_` : "shuttle_local_";
+
+      const savedPlayers = localStorage.getItem(`${keyPrefix}players`);
+      const savedActiveIds = localStorage.getItem(`${keyPrefix}active_player_ids`);
+      const savedMatches = localStorage.getItem(`${keyPrefix}session_matches`);
+      const savedQueue = localStorage.getItem(`${keyPrefix}queue`);
       const savedVoice = localStorage.getItem("shuttle_voice_enabled");
       const savedRole = localStorage.getItem("shuttle_room_role");
       const savedCourtName = localStorage.getItem("shuttle_court_name");
@@ -140,7 +147,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           initialPlayers = JSON.parse(savedPlayers);
           setPlayers(initialPlayers);
         } catch (e) {
-          localStorage.removeItem("shuttle_players");
+          localStorage.removeItem(`${keyPrefix}players`);
         }
       }
 
@@ -153,26 +160,26 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         ];
         initialPlayers = defaultPlayers;
         setPlayers(defaultPlayers);
-        localStorage.setItem("shuttle_players", JSON.stringify(defaultPlayers));
+        localStorage.setItem(`${keyPrefix}players`, JSON.stringify(defaultPlayers));
       }
 
       if (savedActiveIds) {
         try {
           setActivePlayerIds(JSON.parse(savedActiveIds));
         } catch (e) {
-          localStorage.removeItem("shuttle_active_player_ids");
+          localStorage.removeItem(`${keyPrefix}active_player_ids`);
         }
       } else {
         const defaultActiveIds = initialPlayers.map((p) => p.id);
         setActivePlayerIds(defaultActiveIds);
-        localStorage.setItem("shuttle_active_player_ids", JSON.stringify(defaultActiveIds));
+        localStorage.setItem(`${keyPrefix}active_player_ids`, JSON.stringify(defaultActiveIds));
       }
 
       if (savedMatches) {
         try {
           setSessionMatches(JSON.parse(savedMatches));
         } catch (e) {
-          localStorage.removeItem("shuttle_session_matches");
+          localStorage.removeItem(`${keyPrefix}session_matches`);
         }
       }
       
@@ -180,15 +187,17 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         try {
           setQueue(JSON.parse(savedQueue));
         } catch (e) {
-          localStorage.removeItem("shuttle_queue");
+          localStorage.removeItem(`${keyPrefix}queue`);
         }
       } else {
         setQueue(initialPlayers);
-        localStorage.setItem("shuttle_queue", JSON.stringify(initialPlayers));
+        localStorage.setItem(`${keyPrefix}queue`, JSON.stringify(initialPlayers));
       }
 
       if (savedRoomCode) setRoomCode(savedRoomCode);
-      if (savedLastUpdate) setLastServerUpdate(Number(savedLastUpdate));
+      // Explicitly initialize lastServerUpdate to 0 on mount to force initial server DB hydration
+      setLastServerUpdate(0);
+      
       if (savedVoice) setVoiceEnabled(savedVoice === "true");
       if (savedRole) setRoomRole(savedRole as any);
       if (savedCourtName) setCourtName(savedCourtName);
@@ -372,11 +381,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           setActiveMatch(data.activeMatch);
           setWinnerCelebration(data.winnerCelebration);
           
-          localStorage.setItem("shuttle_players", JSON.stringify(data.players));
-          localStorage.setItem("shuttle_active_player_ids", JSON.stringify(data.activePlayerIds));
-          localStorage.setItem("shuttle_queue", JSON.stringify(data.queue));
-          localStorage.setItem("shuttle_session_matches", JSON.stringify(data.sessionMatches));
-          localStorage.setItem("shuttle_last_server_update", String(data.lastUpdated));
+          localStorage.setItem(getStorageKey("players"), JSON.stringify(data.players));
+          localStorage.setItem(getStorageKey("active_player_ids"), JSON.stringify(data.activePlayerIds));
+          localStorage.setItem(getStorageKey("queue"), JSON.stringify(data.queue));
+          localStorage.setItem(getStorageKey("session_matches"), JSON.stringify(data.sessionMatches));
+          localStorage.setItem(getStorageKey("last_server_update"), String(data.lastUpdated));
         }
       } catch (err) {
         console.error("Failed to poll room state:", err);
@@ -433,12 +442,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem("shuttle_room_role", "host");
         localStorage.setItem("shuttle_court_name", courtNameInput);
         localStorage.setItem("shuttle_is_creator", "true");
-        localStorage.setItem("shuttle_last_server_update", String(data.state.lastUpdated));
+        localStorage.setItem(getStorageKey("last_server_update", data.code), String(data.state.lastUpdated));
         
         // Add to recent list
         addToRecentCourts(data.code, courtNameInput);
         
         alert(`Court "${courtNameInput}" created! Invite Code: ${data.code}`);
+        if (!data.cloud) {
+          alert("⚠️ Database Offline: The server is running without a database connection. Add DATABASE_URL to your Vercel Environment Variables to enable persistent multi-user court syncing.");
+        }
       } else {
         alert("Failed to create court.");
       }
@@ -483,11 +495,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem("shuttle_room_role", "host");
         localStorage.setItem("shuttle_court_name", resolvedName);
         localStorage.setItem("shuttle_is_creator", "false");
-        localStorage.setItem("shuttle_players", JSON.stringify(data.players));
-        localStorage.setItem("shuttle_active_player_ids", JSON.stringify(data.activePlayerIds));
-        localStorage.setItem("shuttle_queue", JSON.stringify(data.queue));
-        localStorage.setItem("shuttle_session_matches", JSON.stringify(data.sessionMatches));
-        localStorage.setItem("shuttle_last_server_update", String(data.lastUpdated));
+        localStorage.setItem(getStorageKey("players", cleanCode), JSON.stringify(data.players));
+        localStorage.setItem(getStorageKey("active_player_ids", cleanCode), JSON.stringify(data.activePlayerIds));
+        localStorage.setItem(getStorageKey("queue", cleanCode), JSON.stringify(data.queue));
+        localStorage.setItem(getStorageKey("session_matches", cleanCode), JSON.stringify(data.sessionMatches));
+        localStorage.setItem(getStorageKey("last_server_update", cleanCode), String(data.lastUpdated));
         setJoinInput("");
 
         // Add to recent list
