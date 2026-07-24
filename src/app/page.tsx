@@ -16,6 +16,7 @@ import {
 import Scoreboard from "../components/Scoreboard";
 import MatchSetup from "../components/MatchSetup";
 import PlayerPool from "../components/PlayerPool";
+import { announceScore, triggerHaptic } from "../utils/refereeDevice";
 
 // Inline SVG Shuttlecock Logo (No Emojis)
 const LogoShuttleIcon = () => (
@@ -77,6 +78,16 @@ export default function Home() {
     winnerNames: string;
   } | null>(null);
 
+  // Room sync states
+  const [roomCode, setRoomCode] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [lastServerUpdate, setLastServerUpdate] = useState<number>(0);
+  const [joinInput, setJoinInput] = useState<string>("");
+
+  // Voice Referee state
+  const [voiceEnabled, setVoiceEnabled] = useState<boolean>(false);
+
   // Load state from localStorage on mount
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
@@ -84,6 +95,9 @@ export default function Home() {
     const savedActiveIds = localStorage.getItem("shuttle_active_player_ids");
     const savedMatches = localStorage.getItem("shuttle_session_matches");
     const savedQueue = localStorage.getItem("shuttle_queue");
+    const savedRoomCode = localStorage.getItem("shuttle_room_code");
+    const savedLastUpdate = localStorage.getItem("shuttle_last_server_update");
+    const savedVoice = localStorage.getItem("shuttle_voice_enabled");
 
     let initialPlayers: Player[] = [];
 
@@ -119,6 +133,10 @@ export default function Home() {
       setQueue(initialPlayers);
       localStorage.setItem("shuttle_queue", JSON.stringify(initialPlayers));
     }
+
+    if (savedRoomCode) setRoomCode(savedRoomCode);
+    if (savedLastUpdate) setLastServerUpdate(Number(savedLastUpdate));
+    if (savedVoice) setVoiceEnabled(savedVoice === "true");
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
@@ -157,6 +175,155 @@ export default function Home() {
       if (activeScreen === "scoreboard") {
         handleRedoAction();
       }
+    }
+  };
+
+  // 1. Poll room updates if connected
+  useEffect(() => {
+    if (!roomCode) return;
+    
+    setIsSyncing(true);
+    setSyncError(null);
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/room/${roomCode}`);
+        if (!res.ok) {
+          if (res.status === 404) {
+            setSyncError("Invite room not found. Disconnecting...");
+            setRoomCode(null);
+            localStorage.removeItem("shuttle_room_code");
+          }
+          return;
+        }
+        
+        const data = await res.json();
+        
+        // Update local states if server has newer updates
+        if (data.lastUpdated > lastServerUpdate) {
+          setPlayers(data.players);
+          setActivePlayerIds(data.activePlayerIds);
+          setQueue(data.queue);
+          setSessionMatches(data.sessionMatches);
+          setActiveMatch(data.activeMatch);
+          setWinnerCelebration(data.winnerCelebration);
+          setActiveScreen(data.activeScreen);
+          setLastServerUpdate(data.lastUpdated);
+
+          localStorage.setItem("shuttle_players", JSON.stringify(data.players));
+          localStorage.setItem("shuttle_active_player_ids", JSON.stringify(data.activePlayerIds));
+          localStorage.setItem("shuttle_queue", JSON.stringify(data.queue));
+          localStorage.setItem("shuttle_session_matches", JSON.stringify(data.sessionMatches));
+          localStorage.setItem("shuttle_last_server_update", String(data.lastUpdated));
+        }
+      } catch (err) {
+        console.error("Cloud sync poll error:", err);
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, 1500);
+    return () => clearInterval(interval);
+  }, [roomCode, lastServerUpdate]);
+
+  // Pushes changes to the server
+  const syncState = async (mutations: {
+    players?: Player[];
+    activePlayerIds?: string[];
+    queue?: Player[];
+    sessionMatches?: MatchRecord[];
+    activeMatch?: MatchState | null;
+    winnerCelebration?: any | null;
+    activeScreen?: Screen;
+  }) => {
+    if (!roomCode) return;
+    try {
+      const res = await fetch(`/api/room/${roomCode}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(mutations),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLastServerUpdate(data.lastUpdated);
+        localStorage.setItem("shuttle_last_server_update", String(data.lastUpdated));
+      }
+    } catch (err) {
+      console.error("Failed to push sync:", err);
+    }
+  };
+
+  const handleCreateRoom = async () => {
+    try {
+      const res = await fetch("/api/room", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          players,
+          activePlayerIds,
+          queue,
+          sessionMatches,
+          activeMatch,
+          winnerCelebration,
+          activeScreen,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRoomCode(data.code);
+        setLastServerUpdate(data.state.lastUpdated);
+        localStorage.setItem("shuttle_room_code", data.code);
+        localStorage.setItem("shuttle_last_server_update", String(data.state.lastUpdated));
+        alert(`Cloud Room created! Share Code: ${data.code}`);
+      } else {
+        alert("Failed to create room.");
+      }
+    } catch (err) {
+      alert("Error connecting to server.");
+    }
+  };
+
+  const handleJoinRoom = async (code: string) => {
+    const cleanCode = code.trim().toUpperCase();
+    if (!cleanCode || cleanCode.length !== 6) {
+      alert("Please enter a valid 6-character invite code.");
+      return;
+    }
+    try {
+      const res = await fetch(`/api/room/${cleanCode}`);
+      if (res.ok) {
+        const data = await res.json();
+        setRoomCode(cleanCode);
+        setPlayers(data.players);
+        setActivePlayerIds(data.activePlayerIds);
+        setQueue(data.queue);
+        setSessionMatches(data.sessionMatches);
+        setActiveMatch(data.activeMatch);
+        setWinnerCelebration(data.winnerCelebration);
+        setActiveScreen(data.activeScreen);
+        setLastServerUpdate(data.lastUpdated);
+
+        localStorage.setItem("shuttle_room_code", cleanCode);
+        localStorage.setItem("shuttle_players", JSON.stringify(data.players));
+        localStorage.setItem("shuttle_active_player_ids", JSON.stringify(data.activePlayerIds));
+        localStorage.setItem("shuttle_queue", JSON.stringify(data.queue));
+        localStorage.setItem("shuttle_session_matches", JSON.stringify(data.sessionMatches));
+        localStorage.setItem("shuttle_last_server_update", String(data.lastUpdated));
+        setJoinInput("");
+        alert(`Successfully joined room ${cleanCode}!`);
+      } else {
+        alert("Invite room not found. Check the code and try again.");
+      }
+    } catch (err) {
+      alert("Error connecting to server.");
+    }
+  };
+
+  const handleDisconnectRoom = () => {
+    if (confirm("Disconnect from cloud session? Your local device will keep the current session state, but edits will no longer sync.")) {
+      setRoomCode(null);
+      localStorage.removeItem("shuttle_room_code");
+      localStorage.removeItem("shuttle_last_server_update");
     }
   };
 
@@ -231,6 +398,7 @@ export default function Home() {
   const savePlayersToStorage = (updatedPlayers: Player[]) => {
     setPlayers(updatedPlayers);
     localStorage.setItem("shuttle_players", JSON.stringify(updatedPlayers));
+    syncState({ players: updatedPlayers });
   };
 
   const saveActivePlayerIdsToStorage = (updatedIds: string[]) => {
@@ -250,16 +418,19 @@ export default function Home() {
 
     setQueue(newQueue);
     localStorage.setItem("shuttle_queue", JSON.stringify(newQueue));
+    syncState({ activePlayerIds: updatedIds, queue: newQueue });
   };
 
   const saveQueueToStorage = (updatedQueue: Player[]) => {
     setQueue(updatedQueue);
     localStorage.setItem("shuttle_queue", JSON.stringify(updatedQueue));
+    syncState({ queue: updatedQueue });
   };
 
   const saveMatchesToStorage = (updatedMatches: MatchRecord[]) => {
     setSessionMatches(updatedMatches);
     localStorage.setItem("shuttle_session_matches", JSON.stringify(updatedMatches));
+    syncState({ sessionMatches: updatedMatches });
   };
 
   // 1. Add Player
@@ -313,6 +484,7 @@ export default function Home() {
     saveQueueToStorage(remainingQueue);
 
     setActiveScreen("scoreboard");
+    syncState({ activeMatch: matchState, activeScreen: "scoreboard", queue: remainingQueue });
   };
 
   // Check for winning conditions
@@ -352,26 +524,43 @@ export default function Home() {
   // 4. Scoring Actions
   const handleRallyWinner = (winnerSide: Side) => {
     if (!activeMatch) return;
+    const serviceOver = activeMatch.servingSide !== winnerSide;
     const updated = handleRally(activeMatch, winnerSide, false, null);
     setActiveMatch(updated);
 
     const winner = checkWinner(updated);
     if (winner) {
-      triggerWinnerCelebration(updated, winner);
+      const winnerObj = winner === "left" ? updated.left : updated.right;
+      const winnerNames = winnerObj.players
+        .filter((p) => p !== null)
+        .map((p) => p!.name)
+        .join(" & ");
+
+      const celebration = {
+        winnerSide: winner,
+        winnerNames,
+      };
+
+      setWinnerCelebration(celebration);
+      syncState({ activeMatch: updated, winnerCelebration: celebration });
+      
+      // Feedback: Victory!
+      triggerHaptic("win");
+      if (voiceEnabled) {
+        try {
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(new SpeechSynthesisUtterance(`Game won by ${winnerNames}`));
+        } catch (err) {}
+      }
+    } else {
+      syncState({ activeMatch: updated });
+      
+      // Feedback: Point or Serve Over
+      triggerHaptic(serviceOver ? "side-out" : "point");
+      if (voiceEnabled) {
+        announceScore(updated.left.score, updated.right.score, updated.servingSide, updated.scoringSystem, updated.mode, serviceOver);
+      }
     }
-  };
-
-  const triggerWinnerCelebration = (match: MatchState, winnerSide: Side) => {
-    const winnerObj = winnerSide === "left" ? match.left : match.right;
-    const winnerNames = winnerObj.players
-      .filter((p) => p !== null)
-      .map((p) => p!.name)
-      .join(" & ");
-
-    setWinnerCelebration({
-      winnerSide,
-      winnerNames,
-    });
   };
 
   // 5. Save Finished Match Stats
@@ -453,6 +642,12 @@ export default function Home() {
     setActiveMatch(null);
     setWinnerCelebration(null);
     setActiveScreen("home");
+    syncState({
+      activeMatch: null,
+      winnerCelebration: null,
+      activeScreen: "home",
+      queue: freshQueue,
+    });
   };
 
   const handleDiscardMatch = () => {
@@ -476,6 +671,7 @@ export default function Home() {
       setActiveMatch(null);
       setWinnerCelebration(null);
       setActiveScreen("home");
+      syncState({ activeMatch: null, winnerCelebration: null, activeScreen: "home" });
     }
   };
 
@@ -488,22 +684,47 @@ export default function Home() {
     }
   };
 
+  const handleToggleVoice = () => {
+    const newVal = !voiceEnabled;
+    setVoiceEnabled(newVal);
+    localStorage.setItem("shuttle_voice_enabled", String(newVal));
+    triggerHaptic("point");
+    if (newVal) {
+      try {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance("Voice referee active"));
+      } catch (err) {}
+    }
+  };
+
   const handleUndoAction = () => {
     if (!activeMatch) return;
     const reverted = handleUndo(activeMatch);
     setActiveMatch(reverted);
+    syncState({ activeMatch: reverted });
+    triggerHaptic("undo");
+    if (voiceEnabled) {
+      announceScore(reverted.left.score, reverted.right.score, reverted.servingSide, reverted.scoringSystem, reverted.mode, false);
+    }
   };
 
   const handleRedoAction = () => {
     if (!activeMatch) return;
     const restored = handleRedo(activeMatch);
     setActiveMatch(restored);
+    syncState({ activeMatch: restored });
+    triggerHaptic("undo");
+    if (voiceEnabled) {
+      announceScore(restored.left.score, restored.right.score, restored.servingSide, restored.scoringSystem, restored.mode, false);
+    }
   };
 
   const handleSwapSidesAction = () => {
     if (!activeMatch) return;
     const swapped = swapSides(activeMatch);
     setActiveMatch(swapped);
+    syncState({ activeMatch: swapped });
+    triggerHaptic("point");
   };
 
   return (
@@ -591,6 +812,104 @@ export default function Home() {
           >
             New Match
           </button>
+        </div>
+
+        {/* Cloud Sync Room Panel */}
+        <div className="glass-panel flex-col gap-12" style={{ padding: "16px", marginBottom: "20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              ⚡ Real-time Collaboration
+            </span>
+            {roomCode ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "0.75rem", color: "#10b981", fontWeight: 700 }}>
+                <span className="live-pulse-dot" /> Connected
+              </span>
+            ) : (
+              <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600 }}>
+                Local Mode
+              </span>
+            )}
+          </div>
+
+          {roomCode ? (
+            <div className="flex-col gap-8">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#09090b", padding: "12px 14px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                <div>
+                  <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>
+                    Invite Code
+                  </div>
+                  <div style={{ fontSize: "1.25rem", fontWeight: 800, color: "var(--color-serve)", fontFamily: "monospace", letterSpacing: "0.05em", marginTop: "2px" }}>
+                    {roomCode}
+                  </div>
+                </div>
+                <button 
+                  className="glass-button"
+                  style={{ padding: "6px 12px", fontSize: "0.75rem", borderColor: "rgba(255,255,255,0.12)" }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(roomCode);
+                    alert("Invite code copied to clipboard!");
+                  }}
+                >
+                  Copy Code
+                </button>
+              </div>
+              <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", lineHeight: "1.3" }}>
+                Others can enter this code on their phones to view matches and log scores in real-time.
+              </p>
+              {syncError && (
+                <div style={{ fontSize: "0.75rem", color: "var(--color-out)", fontWeight: 600 }}>
+                  ⚠️ {syncError}
+                </div>
+              )}
+              <button 
+                className="glass-button" 
+                onClick={handleDisconnectRoom}
+                style={{ padding: "10px", border: "1px solid rgba(255,255,255,0.08)", fontSize: "0.8rem", width: "100%" }}
+              >
+                Disconnect Session
+              </button>
+            </div>
+          ) : (
+            <div className="flex-col gap-12">
+              <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", lineHeight: "1.3" }}>
+                Generate an invite code to sync this session across multiple devices for co-scoring.
+              </p>
+              
+              <div style={{ display: "flex", gap: "8px", width: "100%" }}>
+                <input 
+                  type="text" 
+                  className="text-input" 
+                  placeholder="Enter 6-char Code" 
+                  value={joinInput}
+                  onChange={(e) => setJoinInput(e.target.value.toUpperCase().slice(0, 6))}
+                  style={{ padding: "10px 12px", fontSize: "0.82rem", textTransform: "uppercase", fontFamily: "monospace" }}
+                />
+                <button 
+                  className="glass-button" 
+                  onClick={() => handleJoinRoom(joinInput)}
+                  style={{ padding: "10px 16px", fontSize: "0.8rem", fontWeight: 700 }}
+                >
+                  Join
+                </button>
+              </div>
+
+              <button 
+                className="glass-button" 
+                onClick={handleCreateRoom}
+                style={{ 
+                  padding: "12px", 
+                  border: "1px solid var(--color-serve)", 
+                  color: "var(--color-serve)", 
+                  background: "rgba(234, 179, 8, 0.02)", 
+                  fontSize: "0.82rem", 
+                  fontWeight: 700, 
+                  width: "100%" 
+                }}
+              >
+                Create Invite Room
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Queue Display */}
@@ -745,6 +1064,7 @@ export default function Home() {
           <PlayerPool
             players={players}
             activePlayerIds={activePlayerIds}
+            sessionMatches={sessionMatches}
             onAddPlayer={handleAddPlayer}
             onTogglePlayerActive={handleTogglePlayerActive}
             onClose={() => setActiveScreen("home")}
@@ -771,6 +1091,8 @@ export default function Home() {
           {activeMatch && (
             <Scoreboard
               state={activeMatch}
+              voiceEnabled={voiceEnabled}
+              onToggleVoice={handleToggleVoice}
               onRallyWinner={handleRallyWinner}
               onUndo={handleUndoAction}
               onRedo={handleRedoAction}

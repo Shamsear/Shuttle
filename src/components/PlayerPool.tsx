@@ -13,14 +13,27 @@ export interface Player {
   stats: PlayerStats;
 }
 
+interface MatchRecord {
+  id: string;
+  date: string;
+  mode: "singles" | "doubles";
+  leftPlayers: string[];
+  rightPlayers: string[];
+  leftScore: number;
+  rightScore: number;
+  winnerSide: "left" | "right";
+}
+
 interface PlayerPoolProps {
   players: Player[];
   activePlayerIds: string[];
+  sessionMatches: MatchRecord[];
   onAddPlayer: (name: string) => void;
   onTogglePlayerActive: (id: string) => void;
   onClose: () => void;
 }
 
+// Icons
 const PlusIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <line x1="12" y1="5" x2="12" y2="19" />
@@ -34,15 +47,22 @@ const ActiveCheckIcon = () => (
   </svg>
 );
 
+const SparkleIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#eab308" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle", marginRight: "4px" }}>
+    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+  </svg>
+);
+
 export default function PlayerPool({
   players,
   activePlayerIds,
+  sessionMatches,
   onAddPlayer,
   onTogglePlayerActive,
   onClose,
 }: PlayerPoolProps) {
   const [newPlayerName, setNewPlayerName] = useState("");
-  const [activeTab, setActiveTab] = useState<"checkin" | "all">("checkin");
+  const [activeTab, setActiveTab] = useState<"checkin" | "all" | "analytics">("checkin");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,11 +77,60 @@ export default function PlayerPool({
     return `${Math.round((stats.wins / total) * 100)}%`;
   };
 
+  // Partner chemistry calculator
+  const getBestPartner = (playerId: string) => {
+    const doubleMatches = sessionMatches.filter(m => m.mode === "doubles");
+    
+    // Track wins/losses with each partner
+    const partnerStats: Record<string, { wins: number; total: number }> = {};
+
+    doubleMatches.forEach(match => {
+      const isLeft = match.leftPlayers.includes(playerId);
+      const isRight = match.rightPlayers.includes(playerId);
+      
+      if (!isLeft && !isRight) return;
+
+      const isWinner = (isLeft && match.winnerSide === "left") || (isRight && match.winnerSide === "right");
+      const teammates = isLeft ? match.leftPlayers : match.rightPlayers;
+      const partnerId = teammates.find(id => id !== playerId);
+
+      if (partnerId) {
+        if (!partnerStats[partnerId]) {
+          partnerStats[partnerId] = { wins: 0, total: 0 };
+        }
+        partnerStats[partnerId].total += 1;
+        if (isWinner) {
+          partnerStats[partnerId].wins += 1;
+        }
+      }
+    });
+
+    let bestPartnerId = "";
+    let highestRate = -1;
+    let mostMatches = 0;
+
+    Object.entries(partnerStats).forEach(([id, data]) => {
+      const rate = data.wins / data.total;
+      // Tie breaker: rate, then total matches played together
+      if (rate > highestRate || (rate === highestRate && data.total > mostMatches)) {
+        highestRate = rate;
+        bestPartnerId = id;
+        mostMatches = data.total;
+      }
+    });
+
+    if (!bestPartnerId) return "No matches";
+
+    const partnerName = players.find(p => p.id === bestPartnerId)?.name || "Unknown";
+    const winRatePercent = Math.round(highestRate * 100);
+    return `${partnerName} (${winRatePercent}% WR)`;
+  };
+
   const activePlayersList = players.filter((p) => activePlayerIds.includes(p.id));
 
   return (
     <div className="players-layout flex-col gap-20">
-      <h2 style={{ fontSize: "1.35rem", fontWeight: 700, fontFamily: "var(--font-display)", letterSpacing: "-0.02em" }}>
+      <h2 style={{ fontSize: "1.35rem", fontWeight: 700, fontFamily: "var(--font-display)", letterSpacing: "-0.02em", textTransform: "uppercase" }}>
         Players Database
       </h2>
 
@@ -88,25 +157,32 @@ export default function PlayerPool({
         <button
           className={`glass-button ${activeTab === "checkin" ? "active" : ""}`}
           onClick={() => setActiveTab("checkin")}
-          style={{ padding: "10px 0", fontSize: "0.8rem", flex: 1 }}
+          style={{ padding: "10px 0", fontSize: "0.78rem", flex: 1 }}
         >
-          Roster Today ({activePlayerIds.length})
+          Check-In ({activePlayerIds.length})
         </button>
         <button
           className={`glass-button ${activeTab === "all" ? "active" : ""}`}
           onClick={() => setActiveTab("all")}
-          style={{ padding: "10px 0", fontSize: "0.8rem", flex: 1 }}
+          style={{ padding: "10px 0", fontSize: "0.78rem", flex: 1 }}
         >
-          All Profiles ({players.length})
+          Roster ({players.length})
+        </button>
+        <button
+          className={`glass-button ${activeTab === "analytics" ? "active" : ""}`}
+          onClick={() => setActiveTab("analytics")}
+          style={{ padding: "10px 0", fontSize: "0.78rem", flex: 1 }}
+        >
+          Chemistry
         </button>
       </div>
 
       {/* Player List */}
       <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "10px" }}>
-        {activeTab === "checkin" ? (
+        {activeTab === "checkin" && (
           activePlayersList.length === 0 ? (
             <div style={{ textAlign: "center", color: "var(--text-muted)", padding: "40px 0", fontSize: "0.9rem" }}>
-              Roster is empty. Toggle players active under the &quot;All Profiles&quot; tab.
+              Roster is empty. Toggle players active under the &quot;Roster&quot; tab.
             </div>
           ) : (
             activePlayersList.map((player) => (
@@ -136,7 +212,9 @@ export default function PlayerPool({
               </div>
             ))
           )
-        ) : (
+        )}
+
+        {activeTab === "all" && (
           players.length === 0 ? (
             <div style={{ textAlign: "center", color: "var(--text-muted)", padding: "40px 0", fontSize: "0.9rem" }}>
               No player records found. Add players using the form above.
@@ -173,11 +251,38 @@ export default function PlayerPool({
                     color: isActive ? "var(--color-point)" : "var(--text-muted)",
                     border: isActive ? "1px solid rgba(16, 185, 129, 0.2)" : "1px solid transparent"
                   }}>
-                    {isActive ? "Active" : "In check"}
+                    {isActive ? "Active" : "Check-in"}
                   </div>
                 </div>
               );
             })
+          )
+        )}
+
+        {activeTab === "analytics" && (
+          players.length === 0 ? (
+            <div style={{ textAlign: "center", color: "var(--text-muted)", padding: "40px 0", fontSize: "0.9rem" }}>
+              No player profiles to analyze.
+            </div>
+          ) : (
+            players.map((player) => (
+              <div key={player.id} className="player-row glass-panel" style={{ borderLeft: "3px solid #eab308", padding: "14px 16px" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 800, fontSize: "1rem", color: "white" }}>{player.name}</div>
+                  <div className="player-stats-mini" style={{ gridTemplateColumns: "1fr", gap: "8px", marginTop: "8px" }}>
+                    <span className="player-stat-badge" style={{ fontSize: "0.78rem" }}>
+                      🔥 win rate: <strong style={{ color: "var(--color-point)" }}>{getWinRate(player.stats)}</strong> ({player.stats.wins}W - {player.stats.losses}L)
+                    </span>
+                    <span className="player-stat-badge" style={{ fontSize: "0.78rem" }}>
+                      <SparkleIcon /> Best Partner: <strong style={{ color: "#fbbf24" }}>{getBestPartner(player.id)}</strong>
+                    </span>
+                    <span className="player-stat-badge" style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                      ⚠️ average errors logged: <strong>{player.stats.wins + player.stats.losses > 0 ? (player.stats.errors / (player.stats.wins + player.stats.losses)).toFixed(1) : 0}</strong> per match
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))
           )
         )}
       </div>

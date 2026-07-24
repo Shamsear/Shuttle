@@ -4,6 +4,8 @@ import CourtVisualizer from "./CourtVisualizer";
 
 interface ScoreboardProps {
   state: MatchState;
+  voiceEnabled: boolean;
+  onToggleVoice: () => void;
   onRallyWinner: (winnerSide: Side) => void;
   onRallyError?: (errorSide: Side) => void;
   onUndo: () => void;
@@ -33,8 +35,27 @@ const SwapIcon = () => (
   </svg>
 );
 
+const VolumeIcon = ({ enabled }: { enabled: boolean }) => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={enabled ? "var(--color-serve)" : "currentColor"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle" }}>
+    {enabled ? (
+      <>
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
+      </>
+    ) : (
+      <>
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+        <line x1="23" y1="9" x2="17" y2="15" />
+        <line x1="17" y1="9" x2="23" y2="15" />
+      </>
+    )}
+  </svg>
+);
+
 export default function Scoreboard({
   state,
+  voiceEnabled,
+  onToggleVoice,
   onRallyWinner,
   onUndo,
   onRedo,
@@ -176,6 +197,20 @@ export default function Scoreboard({
           title="Swap sides visually"
         >
           <SwapIcon />
+        </button>
+
+        {/* Voice Referee Toggle */}
+        <button 
+          className="glass-button icon-only-btn"
+          onClick={onToggleVoice}
+          title={voiceEnabled ? "Mute Voice Referee" : "Enable Voice Referee"}
+          style={{ 
+            borderColor: voiceEnabled ? "var(--color-serve)" : "rgba(255,255,255,0.08)",
+            background: voiceEnabled ? "rgba(234, 179, 8, 0.05)" : "transparent",
+            opacity: 1
+          }}
+        >
+          <VolumeIcon enabled={voiceEnabled} />
         </button>
 
         {/* End match / Cancel */}
