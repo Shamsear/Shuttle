@@ -663,7 +663,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       roomCode,
       roomRole,
       courtName,
-      activeCourtsList,
       recentCourts,
       voiceEnabled,
       isSyncing,
@@ -687,7 +686,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       handleJoinRoom,
       handleDisconnectRoom,
       handleToggleVoice,
-      refreshActiveCourtsList,
       getDailyLeaderboard
     }}>
       {children}
