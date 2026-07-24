@@ -80,6 +80,7 @@ export default function Home() {
 
   // Room sync states
   const [roomCode, setRoomCode] = useState<string | null>(null);
+  const [roomRole, setRoomRole] = useState<"host" | "viewer" | null>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastServerUpdate, setLastServerUpdate] = useState<number>(0);
@@ -98,6 +99,7 @@ export default function Home() {
     const savedRoomCode = localStorage.getItem("shuttle_room_code");
     const savedLastUpdate = localStorage.getItem("shuttle_last_server_update");
     const savedVoice = localStorage.getItem("shuttle_voice_enabled");
+    const savedRole = localStorage.getItem("shuttle_room_role");
 
     let initialPlayers: Player[] = [];
 
@@ -137,6 +139,7 @@ export default function Home() {
     if (savedRoomCode) setRoomCode(savedRoomCode);
     if (savedLastUpdate) setLastServerUpdate(Number(savedLastUpdate));
     if (savedVoice) setVoiceEnabled(savedVoice === "true");
+    if (savedRole) setRoomRole(savedRole as any);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
@@ -271,8 +274,10 @@ export default function Home() {
       if (res.ok) {
         const data = await res.json();
         setRoomCode(data.code);
+        setRoomRole("host");
         setLastServerUpdate(data.state.lastUpdated);
         localStorage.setItem("shuttle_room_code", data.code);
+        localStorage.setItem("shuttle_room_role", "host");
         localStorage.setItem("shuttle_last_server_update", String(data.state.lastUpdated));
         alert(`Cloud Room created! Share Code: ${data.code}`);
       } else {
@@ -294,6 +299,7 @@ export default function Home() {
       if (res.ok) {
         const data = await res.json();
         setRoomCode(cleanCode);
+        setRoomRole("viewer");
         setPlayers(data.players);
         setActivePlayerIds(data.activePlayerIds);
         setQueue(data.queue);
@@ -304,13 +310,14 @@ export default function Home() {
         setLastServerUpdate(data.lastUpdated);
 
         localStorage.setItem("shuttle_room_code", cleanCode);
+        localStorage.setItem("shuttle_room_role", "viewer");
         localStorage.setItem("shuttle_players", JSON.stringify(data.players));
         localStorage.setItem("shuttle_active_player_ids", JSON.stringify(data.activePlayerIds));
         localStorage.setItem("shuttle_queue", JSON.stringify(data.queue));
         localStorage.setItem("shuttle_session_matches", JSON.stringify(data.sessionMatches));
         localStorage.setItem("shuttle_last_server_update", String(data.lastUpdated));
         setJoinInput("");
-        alert(`Successfully joined room ${cleanCode}!`);
+        alert(`Successfully joined room ${cleanCode} as Spectator!`);
       } else {
         alert("Invite room not found. Check the code and try again.");
       }
@@ -322,7 +329,9 @@ export default function Home() {
   const handleDisconnectRoom = () => {
     if (confirm("Disconnect from cloud session? Your local device will keep the current session state, but edits will no longer sync.")) {
       setRoomCode(null);
+      setRoomRole(null);
       localStorage.removeItem("shuttle_room_code");
+      localStorage.removeItem("shuttle_room_role");
       localStorage.removeItem("shuttle_last_server_update");
     }
   };
@@ -435,6 +444,7 @@ export default function Home() {
 
   // 1. Add Player
   const handleAddPlayer = (name: string) => {
+    if (roomCode && roomRole === "viewer") return;
     // Check if name exists
     if (players.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
       alert("A player with this name already exists!");
@@ -454,6 +464,7 @@ export default function Home() {
 
   // 2. Toggle active status today
   const handleTogglePlayerActive = (id: string) => {
+    if (roomCode && roomRole === "viewer") return;
     let updated: string[];
     if (activePlayerIds.includes(id)) {
       updated = activePlayerIds.filter((pid) => pid !== id);
@@ -470,6 +481,7 @@ export default function Home() {
     leftPlayers: Player[];
     rightPlayers: Player[];
   }) => {
+    if (roomCode && roomRole === "viewer") return;
     const matchState = initializeMatch(
       config.mode,
       config.scoringSystem,
@@ -651,6 +663,7 @@ export default function Home() {
   };
 
   const handleDiscardMatch = () => {
+    if (roomCode && roomRole === "viewer") return;
     if (confirm("Are you sure you want to discard this match and its stats?")) {
       // Return players to back of queue
       if (activeMatch) {
@@ -676,6 +689,7 @@ export default function Home() {
   };
 
   const handleResetSession = () => {
+    if (roomCode && roomRole === "viewer") return;
     if (confirm("Reset current day? This clears today's match history and resets player queues, but keeps all players in the database.")) {
       saveMatchesToStorage([]);
       // Reset queue to all active player profiles
@@ -698,6 +712,7 @@ export default function Home() {
   };
 
   const handleUndoAction = () => {
+    if (roomCode && roomRole === "viewer") return;
     if (!activeMatch) return;
     const reverted = handleUndo(activeMatch);
     setActiveMatch(reverted);
@@ -709,6 +724,7 @@ export default function Home() {
   };
 
   const handleRedoAction = () => {
+    if (roomCode && roomRole === "viewer") return;
     if (!activeMatch) return;
     const restored = handleRedo(activeMatch);
     setActiveMatch(restored);
@@ -720,6 +736,7 @@ export default function Home() {
   };
 
   const handleSwapSidesAction = () => {
+    if (roomCode && roomRole === "viewer") return;
     if (!activeMatch) return;
     const swapped = swapSides(activeMatch);
     setActiveMatch(swapped);
@@ -1092,6 +1109,7 @@ export default function Home() {
             <Scoreboard
               state={activeMatch}
               voiceEnabled={voiceEnabled}
+              isReadOnly={roomCode !== null && roomRole === "viewer"}
               onToggleVoice={handleToggleVoice}
               onRallyWinner={handleRallyWinner}
               onUndo={handleUndoAction}

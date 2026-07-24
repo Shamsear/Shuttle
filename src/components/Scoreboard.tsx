@@ -5,6 +5,7 @@ import CourtVisualizer from "./CourtVisualizer";
 interface ScoreboardProps {
   state: MatchState;
   voiceEnabled: boolean;
+  isReadOnly?: boolean;
   onToggleVoice: () => void;
   onRallyWinner: (winnerSide: Side) => void;
   onRallyError?: (errorSide: Side) => void;
@@ -52,9 +53,17 @@ const VolumeIcon = ({ enabled }: { enabled: boolean }) => (
   </svg>
 );
 
+const LockIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle" }}>
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </svg>
+);
+
 export default function Scoreboard({
   state,
   voiceEnabled,
+  isReadOnly = false,
   onToggleVoice,
   onRallyWinner,
   onUndo,
@@ -107,6 +116,27 @@ export default function Scoreboard({
 
   return (
     <div className="scoreboard-layout">
+      {isReadOnly && (
+        <div style={{
+          background: "rgba(255,255,255,0.03)",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+          padding: "10px 12px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "6px",
+          fontSize: "0.72rem",
+          fontWeight: 700,
+          color: "#fbbf24",
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+          width: "100%",
+          zIndex: 10
+        }}>
+          <LockIcon /> Spectator Mode (Live Sync)
+        </div>
+      )}
+
       {/* 1. Scoreboard HUD - Positioned at the top */}
       <div className="scoreboard-header-hud">
         {/* Left Team (Bottom Team) Score Card */}
@@ -142,11 +172,12 @@ export default function Scoreboard({
       <CourtVisualizer state={state} />
 
       {/* 3. Scoring inputs - Side-by-Side Tap Zones */}
-      <div className="rally-tap-zones-container">
+      <div className="rally-tap-zones-container" style={{ pointerEvents: isReadOnly ? "none" : "auto" }}>
         {/* Team A Tap button */}
         <div 
-          className={`rally-tap-button left-win ${isClassic && !isLeftServing ? "side-out-btn" : ""}`}
-          onClick={() => onRallyWinner("left")}
+          className={`rally-tap-button left-win ${isClassic && !isLeftServing ? "side-out-btn" : ""} ${isReadOnly ? "readonly" : ""}`}
+          onClick={() => !isReadOnly && onRallyWinner("left")}
+          style={{ opacity: isReadOnly ? 0.6 : 1 }}
         >
           <span className="rally-tap-title">{leftButtonTitle}</span>
           <span className="rally-tap-sub">{leftButtonSub}</span>
@@ -154,8 +185,9 @@ export default function Scoreboard({
 
         {/* Team B Tap button */}
         <div 
-          className={`rally-tap-button right-win ${isClassic && isLeftServing ? "side-out-btn" : ""}`}
-          onClick={() => onRallyWinner("right")}
+          className={`rally-tap-button right-win ${isClassic && isLeftServing ? "side-out-btn" : ""} ${isReadOnly ? "readonly" : ""}`}
+          onClick={() => !isReadOnly && onRallyWinner("right")}
+          style={{ opacity: isReadOnly ? 0.6 : 1 }}
         >
           <span className="rally-tap-title">{rightButtonTitle}</span>
           <span className="rally-tap-sub">{rightButtonSub}</span>
@@ -169,8 +201,8 @@ export default function Scoreboard({
           className="glass-button icon-only-btn" 
           onClick={onUndo}
           title="Undo last point"
-          disabled={!canUndo}
-          style={{ opacity: canUndo ? 1 : 0.3 }}
+          disabled={!canUndo || isReadOnly}
+          style={{ opacity: (canUndo && !isReadOnly) ? 1 : 0.3 }}
         >
           <UndoIcon />
         </button>
@@ -180,14 +212,14 @@ export default function Scoreboard({
           className="glass-button icon-only-btn" 
           onClick={onRedo}
           title="Redo last point"
-          disabled={!canRedo}
-          style={{ opacity: canRedo ? 1 : 0.3 }}
+          disabled={!canRedo || isReadOnly}
+          style={{ opacity: (canRedo && !isReadOnly) ? 1 : 0.3 }}
         >
           <RedoIcon />
         </button>
 
         <div style={{ fontSize: "0.65rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", flex: 1, textAlign: "center" }}>
-          Swipe Right to Undo • Left to Redo
+          {isReadOnly ? "Spectator live feed" : "Swipe Right to Undo • Left to Redo"}
         </div>
 
         {/* Swap Sides button */}
@@ -195,6 +227,8 @@ export default function Scoreboard({
           className="glass-button icon-only-btn" 
           onClick={onSwapSides}
           title="Swap sides visually"
+          disabled={isReadOnly}
+          style={{ opacity: isReadOnly ? 0.3 : 1 }}
         >
           <SwapIcon />
         </button>
@@ -216,8 +250,9 @@ export default function Scoreboard({
         {/* End match / Cancel */}
         <button 
           className="glass-button control-btn"
-          style={{ border: "1px solid rgba(244, 63, 94, 0.2)", color: "#fb7185", background: "rgba(244, 63, 94, 0.05)" }}
+          style={{ border: "1px solid rgba(244, 63, 94, 0.2)", color: "#fb7185", background: "rgba(244, 63, 94, 0.05)", opacity: isReadOnly ? 0.3 : 1 }}
           onClick={onEndMatch}
+          disabled={isReadOnly}
         >
           Discard
         </button>
