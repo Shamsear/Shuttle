@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import { Player } from "../components/PlayerPool";
 import { 
   MatchState, 
@@ -13,6 +13,7 @@ import {
 } from "../utils/badmintonEngine";
 import { announceScore, triggerHaptic } from "../utils/refereeDevice";
 import { CustomDialogModal } from "../components/Modal";
+import { supabase } from "../lib/supabase";
 
 interface SessionContextType {
   players: Player[];
@@ -98,6 +99,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastServerUpdate, setLastServerUpdate] = useState<number>(0);
+  const lastServerUpdateRef = useRef(lastServerUpdate);
+
+  useEffect(() => {
+    lastServerUpdateRef.current = lastServerUpdate;
+  }, [lastServerUpdate]);
+
   const [joinInput, setJoinInput] = useState<string>("");
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(false);
 
@@ -207,7 +214,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // WebRTC Broadcast helper
-  const broadcastState = (updatedState: Partial<any>) => {
+  const broadcastState = (updatedState: Record<string, unknown>) => {
     if (!isRoomCreator || activeConnections.length === 0) return;
     
     const fullState = {
@@ -348,22 +355,34 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   // 3. Room sync polling & pushes
   useEffect(() => {
     if (!roomCode) return;
-    setIsSyncing(true);
-    setSyncError(null);
+
+    const controller = new AbortController();
+    const signal = controller.signal;
 
     const poll = async () => {
       try {
-        const res = await fetch(`/api/room/${roomCode}`, { cache: "no-store" });
+        setIsSyncing(true);
+        const res = await fetch(`/api/room/${roomCode}`, { 
+          cache: "no-store",
+          signal
+        });
         if (!res.ok) {
           if (res.status === 404) {
             setSyncError("Room expired or connection lost.");
             setRoomCode(null);
             localStorage.removeItem("shuttle_room_code");
+          } else {
+            setSyncError(`Server error (${res.status}). Retrying...`);
           }
           return;
         }
+        
+        setSyncError(null);
         const data = await res.json();
-        if (data.lastUpdated > lastServerUpdate) {
+        
+        if (signal.aborted) return;
+
+        if (data.lastUpdated > lastServerUpdateRef.current) {
           setLastServerUpdate(data.lastUpdated);
           setPlayers(data.players);
           setActivePlayerIds(data.activePlayerIds);
@@ -373,30 +392,88 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           setWinnerCelebration(data.winnerCelebration);
         }
       } catch (err) {
-        console.error("Failed to poll room state:", err);
+        if (signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+          return;
+        }
+
+        const isNetworkError = err instanceof TypeError && 
+          (err.message.includes("fetch") || err.message.includes("NetworkError") || err.message.includes("Network error"));
+
+        if (isNetworkError) {
+          console.warn("Room sync network error (offline or server down):", err.message);
+        } else {
+          console.error("Failed to poll room state:", err);
+        }
+        setSyncError("Connection lost. Trying to reconnect...");
       } finally {
-        setIsSyncing(false);
+        if (!signal.aborted) {
+          setIsSyncing(false);
+        }
       }
     };
 
     poll(); // Run immediately
-    const interval = setInterval(poll, 1500);
-    return () => clearInterval(interval);
-  }, [roomCode, lastServerUpdate]);
+
+    // Subscribe to realtime database updates for this specific room code!
+    const channel = supabase
+      .channel(`room:${roomCode}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "rooms",
+          filter: `code=eq.${roomCode.toUpperCase()}`
+        },
+        () => {
+          // Whenever rooms.last_updated changes, fetch immediately!
+          poll();
+        }
+      )
+      .subscribe();
+
+    // Fallback: poll every 10 seconds just in case websockets disconnect
+    const interval = setInterval(poll, 10000);
+
+    return () => {
+      controller.abort();
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [roomCode]);
 
 
-  const syncState = async (delta: Partial<any>) => {
+  const syncState = async (delta: Record<string, unknown>) => {
     if (!roomCode || roomRole === "viewer") return;
     // Broadcast immediately to WebRTC connections for instant 0ms delay sync
     broadcastState(delta);
     try {
-      await fetch(`/api/room/${roomCode}`, {
+      const res = await fetch(`/api/room/${roomCode}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(delta),
       });
+      if (!res.ok) {
+        if (res.status === 404) {
+          setSyncError("Room expired or connection lost.");
+          setRoomCode(null);
+          localStorage.removeItem("shuttle_room_code");
+        } else {
+          setSyncError(`Server sync failed (${res.status}).`);
+        }
+      } else {
+        setSyncError(null);
+      }
     } catch (err) {
-      console.error("Failed to push sync:", err);
+      const isNetworkError = err instanceof TypeError && 
+        (err.message.includes("fetch") || err.message.includes("NetworkError") || err.message.includes("Network error"));
+
+      if (isNetworkError) {
+        console.warn("Room sync push network error (offline or server down):", err.message);
+      } else {
+        console.error("Failed to push sync:", err);
+      }
+      setSyncError("Connection lost. Sync pending...");
     }
   };
 
