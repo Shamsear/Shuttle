@@ -1091,15 +1091,22 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       });
     });
 
-    return Object.values(statsMap).sort((a, b) => {
-      if (b.wins !== a.wins) return b.wins - a.wins;
-      if (b.netPoints !== a.netPoints) return b.netPoints - a.netPoints;
-      const aTotal = a.wins + a.losses;
-      const bTotal = b.wins + b.losses;
-      const aRate = aTotal > 0 ? a.wins / aTotal : 0;
-      const bRate = bTotal > 0 ? b.wins / bTotal : 0;
-      return bRate - aRate;
-    });
+    return Object.values(statsMap)
+      .map((player) => {
+        const total = player.wins + player.losses;
+        const winRate = total > 0 ? Math.round((player.wins / total) * 100) : 0;
+        return {
+          ...player,
+          diff: player.netPoints,
+          winRate,
+        };
+      })
+      .sort((a, b) => {
+        if (b.wins !== a.wins) return b.wins - a.wins;
+        if (b.diff !== a.diff) return b.diff - a.diff;
+        if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+        return 0;
+      });
   };
 
   useEffect(() => {
