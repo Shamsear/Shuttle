@@ -113,7 +113,19 @@ export default function HomePage() {
 
               <div className="flex-col gap-16">
                 {/* Create Court Block */}
-                <div className="flex-col gap-8" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: "16px" }}>
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!courtNameInput.trim()) {
+                      showDialog({ type: "alert", title: "Missing Name", message: "Please enter a name for the court." });
+                      return;
+                    }
+                    handleCreateRoom(courtNameInput.trim());
+                    setCourtNameInput("");
+                  }}
+                  className="flex-col gap-8" 
+                  style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: "16px" }}
+                >
                   <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>
                     Create New Court (Persistent Room)
                   </span>
@@ -127,15 +139,8 @@ export default function HomePage() {
                       style={{ padding: "10px 12px", fontSize: "0.82rem", flex: 1 }}
                     />
                     <button 
+                      type="submit"
                       className="glass-button" 
-                      onClick={() => {
-                        if (!courtNameInput.trim()) {
-                          showDialog({ type: "alert", title: "Missing Name", message: "Please enter a name for the court." });
-                          return;
-                        }
-                        handleCreateRoom(courtNameInput.trim());
-                        setCourtNameInput("");
-                      }}
                       style={{ 
                         padding: "10px 16px", 
                         fontSize: "0.8rem", 
@@ -148,10 +153,16 @@ export default function HomePage() {
                       Create
                     </button>
                   </div>
-                </div>
+                </form>
 
                 {/* Join Court Block */}
-                <div className="flex-col gap-8">
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleJoinRoom(joinInput);
+                  }}
+                  className="flex-col gap-8"
+                >
                   <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>
                     Enter Court Invite Code
                   </span>
@@ -165,8 +176,8 @@ export default function HomePage() {
                       style={{ padding: "10px 12px", fontSize: "0.82rem", textTransform: "uppercase", fontFamily: "monospace", flex: 1 }}
                     />
                     <button 
+                      type="submit"
                       className="glass-button" 
-                      onClick={() => handleJoinRoom(joinInput)}
                       style={{ 
                         padding: "10px 18px", 
                         fontSize: "0.8rem", 
@@ -179,7 +190,7 @@ export default function HomePage() {
                       Join Court
                     </button>
                   </div>
-                </div>
+                </form>
               </div>
             </div>
 
