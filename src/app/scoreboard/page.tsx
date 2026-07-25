@@ -21,6 +21,7 @@ export default function ScoreboardPage() {
     voiceEnabled,
     roomCode,
     roomRole,
+    isRoomCreator,
     winnerCelebration,
     handleToggleVoice,
     handleRallyWinner,
@@ -53,7 +54,8 @@ export default function ScoreboardPage() {
         <Scoreboard
           state={activeMatch}
           voiceEnabled={voiceEnabled}
-          isReadOnly={roomCode !== null && roomRole === "viewer"}
+          isReadOnly={roomCode !== null && !isRoomCreator}
+          roomCode={roomCode}
           onToggleVoice={handleToggleVoice}
           onRallyWinner={handleRallyWinner}
           onUndo={handleUndoAction}
@@ -90,16 +92,22 @@ export default function ScoreboardPage() {
             </div>
           )}
 
-          <button 
-            className="primary-action-btn"
-            style={{ maxWidth: "260px", background: "var(--color-point)", color: "white" }}
-            onClick={() => {
-              handleSaveMatch();
-              router.push("/");
-            }}
-          >
-            Confirm Stats & Next Match
-          </button>
+          {roomCode !== null && !isRoomCreator ? (
+            <div style={{ fontSize: "0.9rem", color: "var(--text-secondary)", fontWeight: 600, background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.1)", padding: "10px 20px", borderRadius: "8px" }}>
+              Waiting for referee to confirm match...
+            </div>
+          ) : (
+            <button 
+              className="primary-action-btn"
+              style={{ maxWidth: "260px", background: "var(--color-point)", color: "white" }}
+              onClick={() => {
+                handleSaveMatch();
+                router.push("/");
+              }}
+            >
+              Confirm Stats & Next Match
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -528,7 +528,7 @@ body {
 
 .court-wrapper {
   height: 100%;
-  max-height: 360px;
+  max-height: 420px;
   aspect-ratio: 610 / 1340;
   position: relative;
   background: #080808;
@@ -536,9 +536,15 @@ body {
   border-radius: 14px;
   box-shadow: 0 20px 45px rgba(0, 0, 0, 0.95), 0 0 25px rgba(234, 179, 8, 0.03);
   overflow: visible; /* Allows upright player tokens to overflow boundaries cleanly */
-  transform: rotateX(28deg) rotateY(0deg) scale(0.92); /* Slanted 3D tilt */
+  transform: rotateX(28deg) rotateY(0deg) scale(0.95); /* Slanted 3D tilt */
   transform-style: preserve-3d;
   transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Spectator Mode Court Sizing Override */
+.scoreboard-layout.spectator-mode .court-wrapper {
+  max-height: 600px;
+  transform: rotateX(25deg) rotateY(0deg) scale(1.05);
 }
 
 .court-svg {
@@ -803,8 +809,12 @@ body {
     padding: 5px 8px;
   }
   .court-wrapper {
-    max-height: 285px;
-    transform: rotateX(28deg) rotateY(0deg) scale(0.86);
+    max-height: 320px;
+    transform: rotateX(28deg) rotateY(0deg) scale(0.9);
+  }
+  .scoreboard-layout.spectator-mode .court-wrapper {
+    max-height: 480px;
+    transform: rotateX(25deg) rotateY(0deg) scale(1.0);
   }
   .rally-tap-zones-container {
     padding: 8px 12px;
@@ -844,8 +854,12 @@ body {
     min-height: 120px;
   }
   .court-wrapper {
-    max-height: 200px;
-    transform: rotateX(28deg) rotateY(0deg) scale(0.72);
+    max-height: 250px;
+    transform: rotateX(28deg) rotateY(0deg) scale(0.85);
+  }
+  .scoreboard-layout.spectator-mode .court-wrapper {
+    max-height: 380px;
+    transform: rotateX(25deg) rotateY(0deg) scale(0.92);
   }
   .rally-tap-button {
     height: 50px;

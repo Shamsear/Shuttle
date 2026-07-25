@@ -6,6 +6,7 @@ interface ScoreboardProps {
   state: MatchState;
   voiceEnabled: boolean;
   isReadOnly?: boolean;
+  roomCode: string | null;
   onToggleVoice: () => void;
   onRallyWinner: (winnerSide: Side) => void;
   onRallyError?: (errorSide: Side) => void;
@@ -64,6 +65,7 @@ export default function Scoreboard({
   state,
   voiceEnabled,
   isReadOnly = false,
+  roomCode,
   onToggleVoice,
   onRallyWinner,
   onUndo,
@@ -115,15 +117,15 @@ export default function Scoreboard({
   const canRedo = state.future && state.future.length > 0;
 
   return (
-    <div className="scoreboard-layout">
+    <div className={`scoreboard-layout ${isReadOnly ? "spectator-mode" : ""}`}>
       {isReadOnly && (
         <div style={{
           background: "rgba(255,255,255,0.03)",
           borderBottom: "1px solid rgba(255,255,255,0.06)",
-          padding: "10px 12px",
+          padding: "10px 16px",
           display: "flex",
           alignItems: "center",
-          justifyContent: "center",
+          justifyContent: "space-between",
           gap: "6px",
           fontSize: "0.72rem",
           fontWeight: 700,
@@ -133,7 +135,37 @@ export default function Scoreboard({
           width: "100%",
           zIndex: 10
         }}>
-          <LockIcon /> Spectator Mode (Live Sync)
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <LockIcon /> Spectator Mode • Invite Code: <span style={{ fontFamily: "monospace", color: "white", background: "rgba(255,255,255,0.08)", padding: "2px 6px", borderRadius: "4px" }}>{roomCode}</span>
+          </div>
+          <button 
+            onClick={onEndMatch} 
+            className="glass-button" 
+            style={{ padding: "4px 8px", fontSize: "0.65rem", textTransform: "uppercase", fontWeight: 700 }}
+          >
+            Exit View
+          </button>
+        </div>
+      )}
+
+      {!isReadOnly && roomCode && (
+        <div style={{
+          background: "rgba(255,255,255,0.02)",
+          borderBottom: "1px solid rgba(255,255,255,0.05)",
+          padding: "6px 16px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "8px",
+          fontSize: "0.7rem",
+          fontWeight: 700,
+          color: "var(--color-serve)",
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+          width: "100%",
+          zIndex: 10
+        }}>
+          Court Code: <span style={{ fontFamily: "monospace", color: "white", background: "rgba(255,255,255,0.08)", padding: "2px 6px", borderRadius: "4px" }}>{roomCode}</span>
         </div>
       )}
 
@@ -172,91 +204,90 @@ export default function Scoreboard({
       <CourtVisualizer state={state} />
 
       {/* 3. Scoring inputs - Side-by-Side Tap Zones */}
-      <div className="rally-tap-zones-container" style={{ pointerEvents: isReadOnly ? "none" : "auto" }}>
-        {/* Team A Tap button */}
-        <div 
-          className={`rally-tap-button left-win ${isClassic && !isLeftServing ? "side-out-btn" : ""} ${isReadOnly ? "readonly" : ""}`}
-          onClick={() => !isReadOnly && onRallyWinner("left")}
-          style={{ opacity: isReadOnly ? 0.6 : 1 }}
-        >
-          <span className="rally-tap-title">{leftButtonTitle}</span>
-          <span className="rally-tap-sub">{leftButtonSub}</span>
-        </div>
+      {!isReadOnly && (
+        <div className="rally-tap-zones-container">
+          {/* Team A Tap button */}
+          <div 
+            className={`rally-tap-button left-win ${isClassic && !isLeftServing ? "side-out-btn" : ""}`}
+            onClick={() => onRallyWinner("left")}
+          >
+            <span className="rally-tap-title">{leftButtonTitle}</span>
+            <span className="rally-tap-sub">{leftButtonSub}</span>
+          </div>
 
-        {/* Team B Tap button */}
-        <div 
-          className={`rally-tap-button right-win ${isClassic && isLeftServing ? "side-out-btn" : ""} ${isReadOnly ? "readonly" : ""}`}
-          onClick={() => !isReadOnly && onRallyWinner("right")}
-          style={{ opacity: isReadOnly ? 0.6 : 1 }}
-        >
-          <span className="rally-tap-title">{rightButtonTitle}</span>
-          <span className="rally-tap-sub">{rightButtonSub}</span>
+          {/* Team B Tap button */}
+          <div 
+            className={`rally-tap-button right-win ${isClassic && isLeftServing ? "side-out-btn" : ""}`}
+            onClick={() => onRallyWinner("right")}
+          >
+            <span className="rally-tap-title">{rightButtonTitle}</span>
+            <span className="rally-tap-sub">{rightButtonSub}</span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 4. Action bar at the bottom */}
-      <div className="floating-controls-bar">
-        {/* Undo Button */}
-        <button 
-          className="glass-button icon-only-btn" 
-          onClick={onUndo}
-          title="Undo last point"
-          disabled={!canUndo || isReadOnly}
-          style={{ opacity: (canUndo && !isReadOnly) ? 1 : 0.3 }}
-        >
-          <UndoIcon />
-        </button>
+      {!isReadOnly && (
+        <div className="floating-controls-bar">
+          {/* Undo Button */}
+          <button 
+            className="glass-button icon-only-btn" 
+            onClick={onUndo}
+            title="Undo last point"
+            disabled={!canUndo}
+            style={{ opacity: canUndo ? 1 : 0.3 }}
+          >
+            <UndoIcon />
+          </button>
 
-        {/* Redo Button */}
-        <button 
-          className="glass-button icon-only-btn" 
-          onClick={onRedo}
-          title="Redo last point"
-          disabled={!canRedo || isReadOnly}
-          style={{ opacity: (canRedo && !isReadOnly) ? 1 : 0.3 }}
-        >
-          <RedoIcon />
-        </button>
+          {/* Redo Button */}
+          <button 
+            className="glass-button icon-only-btn" 
+            onClick={onRedo}
+            title="Redo last point"
+            disabled={!canRedo}
+            style={{ opacity: canRedo ? 1 : 0.3 }}
+          >
+            <RedoIcon />
+          </button>
 
-        <div style={{ fontSize: "0.65rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", flex: 1, textAlign: "center" }}>
-          {isReadOnly ? "Spectator live feed" : "Swipe Right to Undo • Left to Redo"}
+          <div style={{ fontSize: "0.65rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", flex: 1, textAlign: "center" }}>
+            Swipe Right to Undo • Left to Redo
+          </div>
+
+          {/* Swap Sides button */}
+          <button 
+            className="glass-button icon-only-btn" 
+            onClick={onSwapSides}
+            title="Swap sides visually"
+          >
+            <SwapIcon />
+          </button>
+
+          {/* Voice Referee Toggle */}
+          <button 
+            className="glass-button icon-only-btn"
+            onClick={onToggleVoice}
+            title={voiceEnabled ? "Mute Voice Referee" : "Enable Voice Referee"}
+            style={{ 
+              borderColor: voiceEnabled ? "var(--color-serve)" : "rgba(255,255,255,0.08)",
+              background: voiceEnabled ? "rgba(234, 179, 8, 0.05)" : "transparent",
+              opacity: 1
+            }}
+          >
+            <VolumeIcon enabled={voiceEnabled} />
+          </button>
+
+          {/* End match / Cancel */}
+          <button 
+            className="glass-button control-btn"
+            style={{ border: "1px solid rgba(244, 63, 94, 0.2)", color: "#fb7185", background: "rgba(244, 63, 94, 0.05)" }}
+            onClick={onEndMatch}
+          >
+            Discard
+          </button>
         </div>
-
-        {/* Swap Sides button */}
-        <button 
-          className="glass-button icon-only-btn" 
-          onClick={onSwapSides}
-          title="Swap sides visually"
-          disabled={isReadOnly}
-          style={{ opacity: isReadOnly ? 0.3 : 1 }}
-        >
-          <SwapIcon />
-        </button>
-
-        {/* Voice Referee Toggle */}
-        <button 
-          className="glass-button icon-only-btn"
-          onClick={onToggleVoice}
-          title={voiceEnabled ? "Mute Voice Referee" : "Enable Voice Referee"}
-          style={{ 
-            borderColor: voiceEnabled ? "var(--color-serve)" : "rgba(255,255,255,0.08)",
-            background: voiceEnabled ? "rgba(234, 179, 8, 0.05)" : "transparent",
-            opacity: 1
-          }}
-        >
-          <VolumeIcon enabled={voiceEnabled} />
-        </button>
-
-        {/* End match / Cancel */}
-        <button 
-          className="glass-button control-btn"
-          style={{ border: "1px solid rgba(244, 63, 94, 0.2)", color: "#fb7185", background: "rgba(244, 63, 94, 0.05)", opacity: isReadOnly ? 0.3 : 1 }}
-          onClick={onEndMatch}
-          disabled={isReadOnly}
-        >
-          Discard
-        </button>
-      </div>
+      )}
     </div>
   );
 }

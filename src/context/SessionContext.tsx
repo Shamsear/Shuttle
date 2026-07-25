@@ -60,6 +60,7 @@ interface SessionContextType {
   getDailyLeaderboard: () => any[];
   recentCourtsLoading: boolean;
   roomLoading: "joining" | "creating" | null;
+  isRoomCreator: boolean;
   showDialog: (config: {
     type: "alert" | "confirm";
     title: string;
@@ -1228,6 +1229,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       recentCourts,
       recentCourtsLoading,
       roomLoading,
+      isRoomCreator,
       voiceEnabled,
       isSyncing,
       syncError,

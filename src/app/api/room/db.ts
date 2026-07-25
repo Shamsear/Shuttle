@@ -157,12 +157,25 @@ export async function saveRoomToDb(code: string, state: Partial<RoomState>, isNe
       }));
 
       if (!isNewRoom) {
-        const { error: delErr } = await supabase.from("players").delete().eq("room_code", cleanCode);
-        if (delErr) throw delErr;
-      }
-      if (playerRecords.length > 0) {
-        const { error: insErr } = await supabase.from("players").insert(playerRecords);
-        if (insErr) throw insErr;
+        if (playerRecords.length > 0) {
+          const playerIds = state.players.map((p: Player) => p.id);
+          const { error: delErr } = await supabase.from("players")
+            .delete()
+            .eq("room_code", cleanCode)
+            .not("id", "in", `(${playerIds.join(",")})`);
+          if (delErr) throw delErr;
+
+          const { error: upsErr } = await supabase.from("players").upsert(playerRecords);
+          if (upsErr) throw upsErr;
+        } else {
+          const { error: delErr } = await supabase.from("players").delete().eq("room_code", cleanCode);
+          if (delErr) throw delErr;
+        }
+      } else {
+        if (playerRecords.length > 0) {
+          const { error: insErr } = await supabase.from("players").insert(playerRecords);
+          if (insErr) throw insErr;
+        }
       }
     }
 
