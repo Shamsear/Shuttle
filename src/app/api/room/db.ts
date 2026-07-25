@@ -144,10 +144,7 @@ export async function saveRoomToDb(code: string, state: Partial<RoomState>, isNe
       if (roomError) throw roomError;
     }
 
-    // Step 2: Execute all child table upserts in parallel (using async IIFE to return native ES Promises)
-    const updates: Promise<unknown>[] = [];
-
-    // A. Players update
+    // Step 2: Execute Players update first (since other child tables like queue have foreign key references to players)
     if (state.players) {
       const playerRecords = state.players.map((p: Player) => ({
         id: p.id,
@@ -159,17 +156,18 @@ export async function saveRoomToDb(code: string, state: Partial<RoomState>, isNe
         points: p.stats.points
       }));
 
-      updates.push((async () => {
-        if (!isNewRoom) {
-          const { error: delErr } = await supabase.from("players").delete().eq("room_code", cleanCode);
-          if (delErr) throw delErr;
-        }
-        if (playerRecords.length > 0) {
-          const { error: insErr } = await supabase.from("players").insert(playerRecords);
-          if (insErr) throw insErr;
-        }
-      })());
+      if (!isNewRoom) {
+        const { error: delErr } = await supabase.from("players").delete().eq("room_code", cleanCode);
+        if (delErr) throw delErr;
+      }
+      if (playerRecords.length > 0) {
+        const { error: insErr } = await supabase.from("players").insert(playerRecords);
+        if (insErr) throw insErr;
+      }
     }
+
+    // Step 3: Execute all remaining child table upserts in parallel (using async IIFE to return native ES Promises)
+    const updates: Promise<unknown>[] = [];
 
     // B. Queue update
     if (state.queue) {

@@ -59,6 +59,7 @@ interface SessionContextType {
   handleToggleVoice: () => void;
   getDailyLeaderboard: () => any[];
   recentCourtsLoading: boolean;
+  roomLoading: boolean;
   showDialog: (config: {
     type: "alert" | "confirm";
     title: string;
@@ -87,6 +88,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [courtName, setCourtName] = useState<string | null>(null);
   const [recentCourts, setRecentCourts] = useState<{ code: string; name: string }[]>([]);
   const [recentCourtsLoading, setRecentCourtsLoading] = useState<boolean>(false);
+  const [roomLoading, setRoomLoading] = useState<boolean>(false);
   const [isRoomCreator, setIsRoomCreator] = useState<boolean>(false);
   const [dialog, setDialog] = useState<{
     type: "alert" | "confirm";
@@ -118,6 +120,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     onCancel?: () => void;
   }) => {
     setDialog(config);
+  };
+
+  const clearRoomState = () => {
+    setPlayers([]);
+    setActivePlayerIds([]);
+    setQueue([]);
+    setSessionMatches([]);
+    setActiveMatch(null);
+    setWinnerCelebration(null);
+    setLastServerUpdate(0);
   };
 
   // 1. Storage helpers
@@ -162,12 +174,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const savedRecents = localStorage.getItem("shuttle_recent_courts");
       const savedIsCreator = localStorage.getItem("shuttle_is_creator");
 
-      // Initialize empty arrays on load
-      setPlayers([]);
-      setActivePlayerIds([]);
-      setQueue([]);
+      clearRoomState();
 
-      if (savedRoomCode) setRoomCode(savedRoomCode);
+      if (savedRoomCode) {
+        setRoomCode(savedRoomCode);
+        setRoomLoading(true);
+      }
       setLastServerUpdate(0); // Force initial database poll
       
       if (savedVoice) setVoiceEnabled(savedVoice === "true");
@@ -411,6 +423,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       } finally {
         if (!signal.aborted) {
           setIsSyncing(false);
+          setRoomLoading(false);
         }
       }
     };
@@ -557,6 +570,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       showDialog({ type: "alert", title: "Invalid Code", message: "Please enter a valid 6-character invite code." });
       return;
     }
+    clearRoomState();
+    setRoomLoading(true);
     try {
       const res = await fetch(`/api/room/${cleanCode}`, { cache: "no-store" });
       if (res.ok) {
@@ -573,6 +588,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setActiveMatch(data.activeMatch);
         setWinnerCelebration(data.winnerCelebration);
         setLastServerUpdate(data.lastUpdated);
+        setRoomLoading(false);
 
         localStorage.setItem("shuttle_room_code", cleanCode);
         localStorage.setItem("shuttle_room_role", "host");
@@ -584,9 +600,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
         showDialog({ type: "alert", title: "Court Joined", message: `Successfully joined court: ${resolvedName}!` });
       } else {
+        setRoomLoading(false);
         showDialog({ type: "alert", title: "Not Found", message: "Invite room not found. Check the code and try again." });
       }
     } catch (err) {
+      setRoomLoading(false);
       showDialog({ type: "alert", title: "Connection Error", message: "Error connecting to server." });
     }
   };
@@ -601,6 +619,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setRoomRole(null);
         setCourtName(null);
         setIsRoomCreator(false);
+        clearRoomState();
         localStorage.removeItem("shuttle_room_code");
         localStorage.removeItem("shuttle_room_role");
         localStorage.removeItem("shuttle_court_name");
@@ -633,6 +652,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
             setRoomRole(null);
             setCourtName(null);
             setIsRoomCreator(false);
+            clearRoomState();
             localStorage.removeItem("shuttle_room_code");
             localStorage.removeItem("shuttle_room_role");
             localStorage.removeItem("shuttle_court_name");
@@ -1140,6 +1160,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       courtName,
       recentCourts,
       recentCourtsLoading,
+      roomLoading,
       voiceEnabled,
       isSyncing,
       syncError,

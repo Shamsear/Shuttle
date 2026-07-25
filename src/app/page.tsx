@@ -17,6 +17,7 @@ export default function HomePage() {
     courtName,
     recentCourts,
     recentCourtsLoading,
+    roomLoading,
     syncError,
     joinInput,
     setJoinInput,
@@ -34,6 +35,30 @@ export default function HomePage() {
   const router = useRouter();
 
   const activePlayers = players.filter((p) => activePlayerIds.includes(p.id));
+
+  if (roomLoading) {
+    return (
+      <div className="app-container" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "80vh", gap: "20px" }}>
+        <div className="glass-panel" style={{ padding: "40px", borderRadius: "20px", display: "flex", flexDirection: "column", alignItems: "center", gap: "16px", maxWidth: "320px", width: "100%", textAlign: "center" }}>
+          <div className="spinner" style={{
+            width: "40px",
+            height: "40px",
+            border: "3px solid rgba(255,255,255,0.08)",
+            borderTopColor: "var(--color-serve)",
+            borderRadius: "50%",
+            animation: "spin 1s linear infinite"
+          }} />
+          <h2 style={{ fontSize: "1.1rem", fontWeight: 600, color: "white" }}>Connecting to Court...</h2>
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", lineHeight: "1.4" }}>Fetching live score and player roster from the cloud.</p>
+        </div>
+        <style>{`
+          @keyframes spin {
+            to { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
