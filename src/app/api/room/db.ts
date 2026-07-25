@@ -126,9 +126,9 @@ export async function getAllRoomsFromDb() {
 }
 
 // Save room state to Supabase
-export async function saveRoomToDb(code: string, state: Partial<RoomState>, isNewRoom = false) {
+export async function saveRoomToDb(code: string, state: Partial<RoomState>, isNewRoom = false): Promise<{ success: boolean; lastUpdated: number }> {
   const supabase = getDb();
-  if (!supabase) return false;
+  if (!supabase) return { success: false, lastUpdated: 0 };
 
   try {
     const cleanCode = code.toUpperCase();
@@ -260,9 +260,9 @@ export async function saveRoomToDb(code: string, state: Partial<RoomState>, isNe
       if (roomError) throw roomError;
     }
 
-    return true;
+    return { success: true, lastUpdated };
   } catch (error) {
     console.error(`Failed to save room ${code} to database:`, error);
-    return false;
+    return { success: false, lastUpdated: 0 };
   }
 }

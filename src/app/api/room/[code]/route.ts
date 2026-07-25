@@ -50,11 +50,11 @@ export async function POST(
     
     if (isDbConnected) {
       // Save the delta directly to the database without pre-fetching
-      const success = await saveRoomToDb(code, body);
-      if (!success) {
+      const saveRes = await saveRoomToDb(code, body);
+      if (!saveRes.success) {
         return NextResponse.json({ error: "Failed to update room state in database" }, { status: 500 });
       }
-      return NextResponse.json({ success: true, code, lastUpdated: Date.now() });
+      return NextResponse.json({ success: true, code, lastUpdated: saveRes.lastUpdated });
     } else {
       // Fallback: Fetch from in-memory global registry
       const existing = rooms.get(code);

@@ -466,6 +466,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         }
       } else {
         setSyncError(null);
+        try {
+          const data = await res.json();
+          if (data && typeof data.lastUpdated === "number") {
+            setLastServerUpdate(data.lastUpdated);
+          }
+        } catch {}
       }
     } catch (err) {
       const isNetworkError = err instanceof TypeError && 
