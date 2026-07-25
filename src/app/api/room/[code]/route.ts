@@ -49,21 +49,12 @@ export async function POST(
     const isDbConnected = getDb() !== null;
     
     if (isDbConnected) {
-      // Get current state to merge
-      const existing = await getRoomFromDb(code);
-      if (!existing) {
-        return NextResponse.json({ error: "Invite code not found in database" }, { status: 404 });
+      // Save the delta directly to the database without pre-fetching
+      const success = await saveRoomToDb(code, body);
+      if (!success) {
+        return NextResponse.json({ error: "Failed to update room state in database" }, { status: 500 });
       }
-      
-      const updated = {
-        ...existing,
-        ...body,
-        code,
-        lastUpdated: Date.now()
-      };
-      
-      await saveRoomToDb(code, updated);
-      return NextResponse.json(updated);
+      return NextResponse.json({ success: true, code, lastUpdated: Date.now() });
     } else {
       // Fallback: Fetch from in-memory global registry
       const existing = rooms.get(code);

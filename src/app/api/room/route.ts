@@ -59,7 +59,7 @@ export async function POST(request: Request) {
 
     if (isDbConnected) {
       // Save directly to Neon Postgres database
-      await saveRoomToDb(code, roomState);
+      await saveRoomToDb(code, roomState, true);
     } else {
       // Fallback: Save to in-memory global registry
       rooms.set(code, roomState);
