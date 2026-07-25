@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "../../context/SessionContext";
 import PlayerPool from "../../components/PlayerPool";
 
@@ -15,6 +16,7 @@ export default function PlayersPage() {
     handleTogglePlayerActive,
     handleRenamePlayer,
   } = useSession();
+  const router = useRouter();
 
   return (
     <div className="app-container">
@@ -48,8 +50,7 @@ export default function PlayersPage() {
           onDeletePlayer={handleDeletePlayer}
           onRenamePlayer={handleRenamePlayer}
           onClose={() => {
-            // Programmatically go back to home screen
-            window.location.href = "/";
+            router.push("/");
           }}
         />
       </div>

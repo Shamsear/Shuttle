@@ -148,6 +148,12 @@ export default function PlayerPool({
           placeholder="Enter player name..."
           value={newPlayerName}
           onChange={(e) => setNewPlayerName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleSubmit(e);
+            }
+          }}
         />
         <button 
           type="submit" 

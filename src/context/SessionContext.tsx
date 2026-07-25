@@ -59,7 +59,7 @@ interface SessionContextType {
   handleToggleVoice: () => void;
   getDailyLeaderboard: () => any[];
   recentCourtsLoading: boolean;
-  roomLoading: boolean;
+  roomLoading: "joining" | "creating" | null;
   showDialog: (config: {
     type: "alert" | "confirm";
     title: string;
@@ -88,7 +88,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [courtName, setCourtName] = useState<string | null>(null);
   const [recentCourts, setRecentCourts] = useState<{ code: string; name: string }[]>([]);
   const [recentCourtsLoading, setRecentCourtsLoading] = useState<boolean>(false);
-  const [roomLoading, setRoomLoading] = useState<boolean>(false);
+  const [roomLoading, setRoomLoading] = useState<"joining" | "creating" | null>(null);
   const [isRoomCreator, setIsRoomCreator] = useState<boolean>(false);
   const [dialog, setDialog] = useState<{
     type: "alert" | "confirm";
@@ -104,6 +104,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastServerUpdate, setLastServerUpdate] = useState<number>(0);
   const lastServerUpdateRef = useRef(lastServerUpdate);
+  const activeChannelRef = useRef<any>(null);
 
   useEffect(() => {
     lastServerUpdateRef.current = lastServerUpdate;
@@ -178,7 +179,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
       if (savedRoomCode) {
         setRoomCode(savedRoomCode);
-        setRoomLoading(true);
+        setRoomLoading("joining");
       }
       setLastServerUpdate(0); // Force initial database poll
       
@@ -423,7 +424,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       } finally {
         if (!signal.aborted) {
           setIsSyncing(false);
-          setRoomLoading(false);
+          setRoomLoading(null);
         }
       }
     };
@@ -446,23 +447,85 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           poll();
         }
       )
+      .on(
+        "broadcast",
+        { event: "state_update" },
+        ({ payload }) => {
+          if (payload && typeof payload.lastUpdated === "number") {
+            if (payload.lastUpdated > lastServerUpdateRef.current) {
+              setLastServerUpdate(payload.lastUpdated);
+              if (payload.players !== undefined) setPlayers(payload.players);
+              if (payload.activePlayerIds !== undefined) setActivePlayerIds(payload.activePlayerIds);
+              if (payload.queue !== undefined) setQueue(payload.queue);
+              if (payload.sessionMatches !== undefined) setSessionMatches(payload.sessionMatches);
+              if (payload.activeMatch !== undefined) setActiveMatch(payload.activeMatch);
+              if (payload.winnerCelebration !== undefined) setWinnerCelebration(payload.winnerCelebration);
+            }
+          }
+        }
+      )
       .subscribe();
 
-    // Fallback: poll every 10 seconds just in case websockets disconnect
-    const interval = setInterval(poll, 10000);
+    activeChannelRef.current = channel;
+
+    // Fallback: poll every 3 seconds when the tab is visible
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        poll();
+      }
+    }, 3000);
+
+    // Immediate poll when tab becomes active/visible
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        poll();
+      }
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
 
     return () => {
       controller.abort();
       supabase.removeChannel(channel);
+      activeChannelRef.current = null;
       clearInterval(interval);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
     };
   }, [roomCode]);
 
 
   const syncState = async (delta: Record<string, unknown>) => {
     if (!roomCode || roomRole === "viewer") return;
-    // Broadcast immediately to WebRTC connections for instant 0ms delay sync
+
+    const lastUpdated = Date.now();
+    const payload = {
+      lastUpdated,
+      players: delta.players !== undefined ? delta.players : players,
+      activePlayerIds: delta.activePlayerIds !== undefined ? delta.activePlayerIds : activePlayerIds,
+      queue: delta.queue !== undefined ? delta.queue : queue,
+      sessionMatches: delta.sessionMatches !== undefined ? delta.sessionMatches : sessionMatches,
+      activeMatch: delta.activeMatch !== undefined ? delta.activeMatch : activeMatch,
+      winnerCelebration: delta.winnerCelebration !== undefined ? delta.winnerCelebration : winnerCelebration
+    };
+
+    // Broadcast immediately over Supabase Realtime Channel
+    if (activeChannelRef.current) {
+      activeChannelRef.current.send({
+        type: "broadcast",
+        event: "state_update",
+        payload
+      });
+    }
+
+    // Set local timestamp immediately to avoid rubberbanding
+    setLastServerUpdate(lastUpdated);
+
+    // Broadcast immediately to WebRTC connections for instant 0ms delay sync fallback
     broadcastState(delta);
+
     try {
       const res = await fetch(`/api/room/${roomCode}`, {
         method: "POST",
@@ -501,6 +564,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   // 4. Room control methods
   const handleCreateRoom = async (courtNameInput: string) => {
+    setRoomLoading("creating");
     try {
       const res = await fetch("/api/room", {
         method: "POST",
@@ -522,6 +586,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setCourtName(courtNameInput);
         setIsRoomCreator(true);
         setLastServerUpdate(data.state.lastUpdated);
+        setRoomLoading(null);
         localStorage.setItem("shuttle_room_code", data.code);
         localStorage.setItem("shuttle_room_role", "host");
         localStorage.setItem("shuttle_court_name", courtNameInput);
@@ -540,6 +605,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           message: msg
         });
       } else {
+        setRoomLoading(null);
         showDialog({
           type: "alert",
           title: "Error",
@@ -547,6 +613,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         });
       }
     } catch (err) {
+      setRoomLoading(null);
       showDialog({
         type: "alert",
         title: "Connection Error",
@@ -571,7 +638,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     clearRoomState();
-    setRoomLoading(true);
+    setRoomLoading("joining");
     try {
       const res = await fetch(`/api/room/${cleanCode}`, { cache: "no-store" });
       if (res.ok) {
@@ -588,7 +655,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setActiveMatch(data.activeMatch);
         setWinnerCelebration(data.winnerCelebration);
         setLastServerUpdate(data.lastUpdated);
-        setRoomLoading(false);
+        setRoomLoading(null);
 
         localStorage.setItem("shuttle_room_code", cleanCode);
         localStorage.setItem("shuttle_room_role", "host");
@@ -600,11 +667,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
         showDialog({ type: "alert", title: "Court Joined", message: `Successfully joined court: ${resolvedName}!` });
       } else {
-        setRoomLoading(false);
+        setRoomLoading(null);
         showDialog({ type: "alert", title: "Not Found", message: "Invite room not found. Check the code and try again." });
       }
     } catch (err) {
-      setRoomLoading(false);
+      setRoomLoading(null);
       showDialog({ type: "alert", title: "Connection Error", message: "Error connecting to server." });
     }
   };

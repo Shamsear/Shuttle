@@ -777,3 +777,94 @@ body {
   50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 12px #10b981; }
   100% { transform: scale(0.9); opacity: 0.7; }
 }
+
+/* 4.5. Scoreboard Layout & Responsive Scaling */
+.scoreboard-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  justify-content: space-between;
+  background: #000000;
+}
+
+/* Responsive adjustment based on height */
+@media (max-height: 750px) {
+  .hud-score-digits {
+    font-size: 1.85rem;
+    min-width: 36px;
+  }
+  .scoreboard-header-hud {
+    padding: 8px 12px;
+  }
+  .court-container {
+    min-height: 160px;
+    padding: 5px 8px;
+  }
+  .court-wrapper {
+    max-height: 285px;
+    transform: rotateX(28deg) rotateY(0deg) scale(0.86);
+  }
+  .rally-tap-zones-container {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .rally-tap-button {
+    height: 65px;
+    gap: 4px;
+  }
+  .rally-tap-title {
+    font-size: 0.7rem;
+  }
+  .rally-tap-sub {
+    font-size: 0.72rem;
+  }
+  .floating-controls-bar {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .control-btn, .icon-only-btn {
+    height: 34px;
+  }
+  .icon-only-btn {
+    width: 34px;
+  }
+}
+
+@media (max-height: 620px) {
+  .hud-score-digits {
+    font-size: 1.5rem;
+    min-width: 30px;
+  }
+  .hud-team-label {
+    font-size: 0.7rem;
+  }
+  .court-container {
+    min-height: 120px;
+  }
+  .court-wrapper {
+    max-height: 200px;
+    transform: rotateX(28deg) rotateY(0deg) scale(0.72);
+  }
+  .rally-tap-button {
+    height: 50px;
+  }
+  .rally-tap-title {
+    font-size: 0.65rem;
+    letter-spacing: 0.05em;
+  }
+  .rally-tap-sub {
+    display: none; /* Hide sub labels on extremely short screens to conserve space */
+  }
+  .floating-controls-bar {
+    padding: 6px 12px;
+  }
+  .control-btn, .icon-only-btn {
+    height: 30px;
+    font-size: 0.75rem;
+  }
+  .icon-only-btn {
+    width: 30px;
+  }
+}

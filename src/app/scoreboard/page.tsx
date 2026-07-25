@@ -48,7 +48,7 @@ export default function ScoreboardPage() {
   }
 
   return (
-    <div className="app-container no-scroll" style={{ padding: 0, minHeight: "100vh" }}>
+    <div className="app-container no-scroll" style={{ padding: 0, height: "100dvh", overflow: "hidden" }}>
       {activeMatch && (
         <Scoreboard
           state={activeMatch}
