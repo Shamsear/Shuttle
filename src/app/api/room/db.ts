@@ -134,19 +134,13 @@ export async function saveRoomToDb(code: string, state: Partial<RoomState>, isNe
     const cleanCode = code.toUpperCase();
     const lastUpdated = Date.now();
 
-    // Step 1: Upsert base Room first
-    if (state.courtName || isNewRoom) {
+    // Step 1: Create room first ONLY if it is a new room (required for foreign key constraints)
+    if (isNewRoom) {
       const { error: roomError } = await supabase.from("rooms").upsert({
         code: cleanCode,
         court_name: state.courtName || `Court ${cleanCode}`,
         last_updated: lastUpdated
       });
-      if (roomError) throw roomError;
-    } else {
-      const { error: roomError } = await supabase
-        .from("rooms")
-        .update({ last_updated: lastUpdated })
-        .eq("code", cleanCode);
       if (roomError) throw roomError;
     }
 
@@ -223,7 +217,7 @@ export async function saveRoomToDb(code: string, state: Partial<RoomState>, isNe
             const { error: delErr } = await supabase.from("matches")
               .delete()
               .eq("room_code", cleanCode)
-              .not("id", "in", matchIds);
+              .not("id", "in", `(${matchIds.join(",")})`);
             if (delErr) throw delErr;
 
             const { error: upsErr } = await supabase.from("matches").upsert(matchRecords);
@@ -254,6 +248,18 @@ export async function saveRoomToDb(code: string, state: Partial<RoomState>, isNe
 
     // Await all updates
     await Promise.all(updates);
+
+    // Step 3: Now that child tables are committed, update rooms table to trigger Realtime Sync
+    if (!isNewRoom) {
+      const updateData: Record<string, unknown> = { last_updated: lastUpdated };
+      if (state.courtName) updateData.court_name = state.courtName;
+      const { error: roomError } = await supabase
+        .from("rooms")
+        .update(updateData)
+        .eq("code", cleanCode);
+      if (roomError) throw roomError;
+    }
+
     return true;
   } catch (error) {
     console.error(`Failed to save room ${code} to database:`, error);

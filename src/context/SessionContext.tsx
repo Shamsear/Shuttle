@@ -674,18 +674,41 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   // 5. Roster Actions
   const handleAddPlayer = (name: string) => {
     if (roomCode && roomRole === "viewer") return;
-    if (players.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (players.some((p) => p.name.toLowerCase() === trimmed.toLowerCase())) {
       showDialog({ type: "alert", title: "Duplicate Player", message: "A player with this name already exists!" });
       return;
     }
     const newPlayer: Player = {
       id: Date.now().toString(),
-      name,
+      name: trimmed,
       stats: { wins: 0, losses: 0, errors: 0, points: 0 },
     };
     const updated = [...players, newPlayer];
-    savePlayersToStorage(updated);
-    saveActivePlayerIdsToStorage([...activePlayerIds, newPlayer.id]);
+    const updatedActiveIds = [...activePlayerIds, newPlayer.id];
+    
+    // Calculate new queue
+    const activePlayers = updated.filter((p) => updatedActiveIds.includes(p.id));
+    const nextQueue = activePlayers.filter((p) => {
+      if (activeMatch) {
+        const isPlaying = [...activeMatch.left.players, ...activeMatch.right.players].some(
+          (pm) => pm && pm.id === p.id
+        );
+        return !isPlaying;
+      }
+      return true;
+    });
+
+    setPlayers(updated);
+    setActivePlayerIds(updatedActiveIds);
+    setQueue(nextQueue);
+
+    syncState({
+      players: updated,
+      activePlayerIds: updatedActiveIds,
+      queue: nextQueue
+    });
   };
 
   const handleDeletePlayer = (id: string) => {
@@ -705,12 +728,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       message: `Remove "${player?.name || "this player"}" from the roster? This cannot be undone.`,
       onConfirm: () => {
         const updatedPlayers = players.filter((p) => p.id !== id);
-        savePlayersToStorage(updatedPlayers);
         const updatedActiveIds = activePlayerIds.filter((pid) => pid !== id);
-        saveActivePlayerIdsToStorage(updatedActiveIds);
         const updatedQueue = queue.filter((p) => p.id !== id);
-        saveQueueToStorage(updatedQueue);
-        syncState({ queue: updatedQueue });
+
+        setPlayers(updatedPlayers);
+        setActivePlayerIds(updatedActiveIds);
+        setQueue(updatedQueue);
+
+        syncState({
+          players: updatedPlayers,
+          activePlayerIds: updatedActiveIds,
+          queue: updatedQueue
+        });
       }
     });
   };
@@ -724,21 +753,44 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     const updatedPlayers = players.map((p) => p.id === id ? { ...p, name: trimmed } : p);
-    savePlayersToStorage(updatedPlayers);
     const updatedQueue = queue.map((p) => p.id === id ? { ...p, name: trimmed } : p);
-    saveQueueToStorage(updatedQueue);
-    syncState({ queue: updatedQueue });
+
+    setPlayers(updatedPlayers);
+    setQueue(updatedQueue);
+
+    syncState({
+      players: updatedPlayers,
+      queue: updatedQueue
+    });
   };
 
   const handleTogglePlayerActive = (id: string) => {
     if (roomCode && roomRole === "viewer") return;
-    let updated: string[];
+    let updatedActiveIds: string[];
     if (activePlayerIds.includes(id)) {
-      updated = activePlayerIds.filter((pid) => pid !== id);
+      updatedActiveIds = activePlayerIds.filter((pid) => pid !== id);
     } else {
-      updated = [...activePlayerIds, id];
+      updatedActiveIds = [...activePlayerIds, id];
     }
-    saveActivePlayerIdsToStorage(updated);
+    
+    const activePlayers = players.filter((p) => updatedActiveIds.includes(p.id));
+    const nextQueue = activePlayers.filter((p) => {
+      if (activeMatch) {
+        const isPlaying = [...activeMatch.left.players, ...activeMatch.right.players].some(
+          (pm) => pm && pm.id === p.id
+        );
+        return !isPlaying;
+      }
+      return true;
+    });
+
+    setActivePlayerIds(updatedActiveIds);
+    setQueue(nextQueue);
+
+    syncState({
+      activePlayerIds: updatedActiveIds,
+      queue: nextQueue
+    });
   };
 
   const handleResetSession = () => {
@@ -748,9 +800,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       title: "Reset Session",
       message: "Reset current day? This clears today's match history and resets player queues, but keeps all players in the database.",
       onConfirm: () => {
-        saveMatchesToStorage([]);
         const activePlayers = players.filter((p) => activePlayerIds.includes(p.id));
-        saveQueueToStorage(activePlayers);
+        setSessionMatches([]);
+        setQueue(activePlayers);
+        
+        syncState({
+          sessionMatches: [],
+          queue: activePlayers
+        });
       }
     });
   };
@@ -859,7 +916,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     };
 
     const nextMatches = [newRecord, ...sessionMatches];
-    saveMatchesToStorage(nextMatches);
 
     const updatedPlayers = players.map((player) => {
       const isLeftPlayer = activeMatch.left.players.some((p) => p?.id === player.id);
@@ -885,8 +941,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       };
     });
 
-    savePlayersToStorage(updatedPlayers);
-
     const losers = winnerSide === "left" ? activeMatch.right.players : activeMatch.left.players;
     const nextQueue = [...queue];
 
@@ -902,14 +956,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       return fresh || qp;
     });
 
-    saveQueueToStorage(freshQueue);
-
+    setSessionMatches(nextMatches);
+    setPlayers(updatedPlayers);
+    setQueue(freshQueue);
     setActiveMatch(null);
     setWinnerCelebration(null);
+
     syncState({
+      sessionMatches: nextMatches,
+      players: updatedPlayers,
+      queue: freshQueue,
       activeMatch: null,
       winnerCelebration: null,
-      queue: freshQueue,
     });
   };
 
@@ -920,6 +978,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       title: "Discard Match",
       message: "Are you sure you want to discard this match and its stats?",
       onConfirm: () => {
+        let freshQueue = queue;
         if (activeMatch) {
           const allMatchPlayers = [
             ...activeMatch.left.players,
@@ -932,11 +991,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
               nextQueue.push(p);
             }
           });
-          saveQueueToStorage(nextQueue);
+          freshQueue = nextQueue;
+          setQueue(nextQueue);
         }
         setActiveMatch(null);
         setWinnerCelebration(null);
-        syncState({ activeMatch: null, winnerCelebration: null });
+        syncState({
+          activeMatch: null,
+          winnerCelebration: null,
+          queue: freshQueue
+        });
       }
     });
   };
