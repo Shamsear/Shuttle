@@ -14,6 +14,7 @@ import {
 import { announceScore, triggerHaptic } from "../utils/refereeDevice";
 import { CustomDialogModal } from "../components/Modal";
 import { supabase } from "../lib/supabase";
+import { usePathname } from "next/navigation";
 
 interface SessionContextType {
   players: Player[];
@@ -73,6 +74,7 @@ interface SessionContextType {
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [players, setPlayers] = useState<Player[]>([]);
   const [activePlayerIds, setActivePlayerIds] = useState<string[]>([]);
   const [queue, setQueue] = useState<Player[]>([]);
@@ -106,6 +108,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [lastServerUpdate, setLastServerUpdate] = useState<number>(0);
   const lastServerUpdateRef = useRef(lastServerUpdate);
   const activeChannelRef = useRef<any>(null);
+  const pollRef = useRef<(() => Promise<void>) | null>(null);
+
+  // Trigger backend poll immediately on page/route change to prevent stale screens
+  useEffect(() => {
+    if (roomCode && pollRef.current) {
+      pollRef.current();
+    }
+  }, [pathname, roomCode]);
 
   useEffect(() => {
     lastServerUpdateRef.current = lastServerUpdate;
@@ -430,6 +440,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    pollRef.current = poll;
     poll(); // Run immediately
 
     // Subscribe to realtime database updates for this specific room code!
@@ -469,12 +480,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     activeChannelRef.current = channel;
 
-    // Fallback: poll every 3 seconds when the tab is visible
+    // Fallback: poll every 1.5 seconds when the tab is visible
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "visible") {
         poll();
       }
-    }, 3000);
+    }, 1500);
 
     // Immediate poll when tab becomes active/visible
     const handleVisibilityChange = () => {
@@ -490,6 +501,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       controller.abort();
       supabase.removeChannel(channel);
       activeChannelRef.current = null;
+      pollRef.current = null;
       clearInterval(interval);
       if (typeof document !== "undefined") {
         document.removeEventListener("visibilitychange", handleVisibilityChange);
