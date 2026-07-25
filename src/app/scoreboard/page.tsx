@@ -33,16 +33,30 @@ export default function ScoreboardPage() {
   const router = useRouter();
 
   // If no match is active, redirect to home page
+  const [readyToRedirect, setReadyToRedirect] = React.useState(false);
+
+  // Wait for the first sync cycle before deciding to redirect.
+  // This prevents spectator devices from bouncing back before poll resolves.
   React.useEffect(() => {
-    if (!activeMatch && !winnerCelebration) {
+    if (activeMatch || winnerCelebration) {
+      setReadyToRedirect(false);
+      return;
+    }
+    const timer = setTimeout(() => setReadyToRedirect(true), 2500);
+    return () => clearTimeout(timer);
+  }, [activeMatch, winnerCelebration]);
+
+  React.useEffect(() => {
+    if (readyToRedirect && !activeMatch && !winnerCelebration) {
       router.push("/");
     }
-  }, [activeMatch, winnerCelebration, router]);
+  }, [readyToRedirect, activeMatch, winnerCelebration, router]);
 
   if (!activeMatch && !winnerCelebration) {
     return (
-      <div className="app-container flex-col align-center justify-center" style={{ minHeight: "100vh" }}>
-        <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>No active match found. Redirecting...</p>
+      <div className="app-container flex-col align-center justify-center" style={{ minHeight: "100vh", gap: "12px" }}>
+        <div style={{ width: "28px", height: "28px", border: "3px solid rgba(255,255,255,0.1)", borderTopColor: "var(--color-accent)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+        <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>Loading match...</p>
       </div>
     );
   }
