@@ -14,6 +14,7 @@ interface ScoreboardProps {
   onRedo: () => void;
   onSwapSides: () => void;
   onEndMatch: () => void;
+  onExitView: () => void;
 }
 
 // SVG Icons
@@ -72,6 +73,7 @@ export default function Scoreboard({
   onRedo,
   onSwapSides,
   onEndMatch,
+  onExitView,
 }: ScoreboardProps) {
   const { left, right, servingSide, scoringSystem } = state;
 
@@ -139,7 +141,7 @@ export default function Scoreboard({
             <LockIcon /> Spectator Mode • Invite Code: <span style={{ fontFamily: "monospace", color: "white", background: "rgba(255,255,255,0.08)", padding: "2px 6px", borderRadius: "4px" }}>{roomCode}</span>
           </div>
           <button 
-            onClick={onEndMatch} 
+            onClick={onExitView} 
             className="glass-button" 
             style={{ padding: "4px 8px", fontSize: "0.65rem", textTransform: "uppercase", fontWeight: 700 }}
           >

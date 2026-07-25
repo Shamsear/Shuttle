@@ -20,8 +20,7 @@ export default function ScoreboardPage() {
     activeMatch,
     voiceEnabled,
     roomCode,
-    roomRole,
-    isRoomCreator,
+    isMatchOwner,
     winnerCelebration,
     handleToggleVoice,
     handleRallyWinner,
@@ -54,13 +53,14 @@ export default function ScoreboardPage() {
         <Scoreboard
           state={activeMatch}
           voiceEnabled={voiceEnabled}
-          isReadOnly={roomCode !== null && !isRoomCreator}
+          isReadOnly={roomCode !== null && !isMatchOwner}
           roomCode={roomCode}
           onToggleVoice={handleToggleVoice}
           onRallyWinner={handleRallyWinner}
           onUndo={handleUndoAction}
           onRedo={handleRedoAction}
           onSwapSides={handleSwapSidesAction}
+          onExitView={() => router.push("/")}
           onEndMatch={() => {
             handleDiscardMatch();
             router.push("/");
@@ -92,7 +92,7 @@ export default function ScoreboardPage() {
             </div>
           )}
 
-          {roomCode !== null && !isRoomCreator ? (
+          {roomCode !== null && !isMatchOwner ? (
             <div style={{ fontSize: "0.9rem", color: "var(--text-secondary)", fontWeight: 600, background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.1)", padding: "10px 20px", borderRadius: "8px" }}>
               Waiting for referee to confirm match...
             </div>

@@ -62,6 +62,7 @@ interface SessionContextType {
   recentCourtsLoading: boolean;
   roomLoading: "joining" | "creating" | null;
   isRoomCreator: boolean;
+  isMatchOwner: boolean;
   showDialog: (config: {
     type: "alert" | "confirm";
     title: string;
@@ -93,6 +94,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [recentCourtsLoading, setRecentCourtsLoading] = useState<boolean>(false);
   const [roomLoading, setRoomLoading] = useState<"joining" | "creating" | null>(null);
   const [isRoomCreator, setIsRoomCreator] = useState<boolean>(false);
+  const [isMatchOwner, setIsMatchOwner] = useState<boolean>(false);
+
+  // Stable per-device ID persisted in localStorage
+  const deviceId = React.useMemo(() => {
+    if (typeof window === "undefined") return "";
+    let id = localStorage.getItem("shuttle_device_id");
+    if (!id) {
+      id = `dev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      localStorage.setItem("shuttle_device_id", id);
+    }
+    return id;
+  }, []);
   const [dialog, setDialog] = useState<{
     type: "alert" | "confirm";
     title: string;
@@ -417,6 +430,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           setSessionMatches(data.sessionMatches);
           setActiveMatch(data.activeMatch);
           setWinnerCelebration(data.winnerCelebration);
+          // Derive match ownership from the embedded matchOwnerId
+          if (data.activeMatch?.matchOwnerId) {
+            setIsMatchOwner(data.activeMatch.matchOwnerId === deviceId);
+          } else if (!data.activeMatch) {
+            setIsMatchOwner(false);
+          }
         }
       } catch (err) {
         if (signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
@@ -470,7 +489,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
               if (payload.activePlayerIds !== undefined) setActivePlayerIds(payload.activePlayerIds);
               if (payload.queue !== undefined) setQueue(payload.queue);
               if (payload.sessionMatches !== undefined) setSessionMatches(payload.sessionMatches);
-              if (payload.activeMatch !== undefined) setActiveMatch(payload.activeMatch);
+              if (payload.activeMatch !== undefined) {
+                setActiveMatch(payload.activeMatch);
+                // Derive match ownership from the broadcast payload
+                if (payload.activeMatch?.matchOwnerId) {
+                  setIsMatchOwner(payload.activeMatch.matchOwnerId === deviceId);
+                } else if (!payload.activeMatch) {
+                  setIsMatchOwner(false);
+                }
+              }
               if (payload.winnerCelebration !== undefined) setWinnerCelebration(payload.winnerCelebration);
             }
           }
@@ -930,10 +957,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       config.mode,
       config.scoringSystem,
       config.leftPlayers,
-      config.rightPlayers
+      config.rightPlayers,
+      deviceId || undefined
     );
     setActiveMatch(matchState);
-    
+    setIsMatchOwner(true); // this device started the match
+
     const playingIds = [...config.leftPlayers, ...config.rightPlayers].map((p) => p.id);
     const remainingQueue = queue.filter((p) => !playingIds.includes(p.id));
     saveQueueToStorage(remainingQueue);
@@ -1242,6 +1271,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       recentCourtsLoading,
       roomLoading,
       isRoomCreator,
+      isMatchOwner,
       voiceEnabled,
       isSyncing,
       syncError,

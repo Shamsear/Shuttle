@@ -10,6 +10,7 @@ export type ScoringSystem = "classic" | "rally";
 export interface MatchState {
   mode: "singles" | "doubles";
   scoringSystem: ScoringSystem;
+  matchOwnerId?: string; // Device ID of whoever started this match
   left: {
     players: (Player | null)[]; // Index 0: Left box, Index 1: Right box
     score: number;
@@ -34,7 +35,8 @@ export function initializeMatch(
   mode: "singles" | "doubles",
   scoringSystem: ScoringSystem,
   leftPlayers: Player[],
-  rightPlayers: Player[]
+  rightPlayers: Player[],
+  matchOwnerId?: string
 ): MatchState {
   const leftBoxPlayers: (Player | null)[] = [null, null];
   const rightBoxPlayers: (Player | null)[] = [null, null];
@@ -55,6 +57,7 @@ export function initializeMatch(
   return {
     mode,
     scoringSystem,
+    matchOwnerId,
     left: {
       players: leftBoxPlayers,
       score: 0,
