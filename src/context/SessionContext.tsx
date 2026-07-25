@@ -184,17 +184,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           // Asynchronously verify that each room still exists on the server
           (async () => {
             try {
-              const validated: any[] = [];
-              for (const c of parsed) {
+              const validationPromises = (parsed as Record<string, unknown>[]).map(async (c) => {
                 try {
-                  const res = await fetch(`/api/room/${c.code}`, { cache: "no-store" });
-                  if (res.ok) {
-                    validated.push(c);
-                  }
+                  const res = await fetch(`/api/room/${String(c.code)}`, { cache: "no-store" });
+                  if (res.ok) return c;
                 } catch (e) {
-                  validated.push(c); // keep it on network errors to prevent false-positives
+                  return c; // keep it on network errors to prevent false-positives
                 }
-              }
+                return null;
+              });
+              const results = await Promise.all(validationPromises);
+              const validated = results.filter((c): c is Record<string, unknown> => c !== null);
+
               if (validated.length !== parsed.length) {
                 setRecentCourts(validated);
                 localStorage.setItem("shuttle_recent_courts", JSON.stringify(validated));
