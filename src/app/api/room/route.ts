@@ -19,7 +19,7 @@ export async function GET() {
       const localRooms = Array.from(rooms.values());
       return NextResponse.json(localRooms, { headers });
     }
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: "Failed to fetch courts list" }, { status: 500 });
   }
 }
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     }
     
     return NextResponse.json({ code, state: roomState, cloud: isDbConnected });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: "Failed to create room" }, { status: 500 });
   }
 }

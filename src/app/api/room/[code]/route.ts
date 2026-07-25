@@ -32,7 +32,7 @@ export async function GET(
       }
       return NextResponse.json(localRoom, { headers });
     }
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: "Failed to fetch room state" }, { status: 500 });
   }
 }
@@ -72,7 +72,7 @@ export async function POST(
       rooms.set(code, updated);
       return NextResponse.json(updated);
     }
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: "Failed to update room state" }, { status: 500 });
   }
 }
