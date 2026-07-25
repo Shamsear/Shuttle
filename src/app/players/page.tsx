@@ -13,6 +13,7 @@ export default function PlayersPage() {
     handleAddPlayer,
     handleDeletePlayer,
     handleTogglePlayerActive,
+    handleRenamePlayer,
   } = useSession();
 
   return (
@@ -45,6 +46,7 @@ export default function PlayersPage() {
           onAddPlayer={handleAddPlayer}
           onTogglePlayerActive={handleTogglePlayerActive}
           onDeletePlayer={handleDeletePlayer}
+          onRenamePlayer={handleRenamePlayer}
           onClose={() => {
             // Programmatically go back to home screen
             window.location.href = "/";
