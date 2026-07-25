@@ -54,6 +54,8 @@ interface SessionContextType {
   handleCreateRoom: (courtNameInput: string) => Promise<void>;
   handleJoinRoom: (code: string) => Promise<void>;
   handleDisconnectRoom: () => void;
+  handleDeleteRoom: () => Promise<void>;
+  removeRecentCourt: (code: string) => void;
   handleToggleVoice: () => void;
   getDailyLeaderboard: () => any[];
   recentCourtsLoading: boolean;
@@ -602,6 +604,60 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const removeRecentCourt = (code: string) => {
+    const updated = recentCourts.filter(c => c.code !== code);
+    setRecentCourts(updated);
+    localStorage.setItem("shuttle_recent_courts", JSON.stringify(updated));
+  };
+
+  const handleDeleteRoom = async () => {
+    if (!roomCode) return;
+    showDialog({
+      type: "confirm",
+      title: "Delete Court Room",
+      message: "Are you sure you want to permanently delete this court room and all its roster, matches, and queue records from the server?",
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`/api/room/${roomCode}`, {
+            method: "DELETE"
+          });
+          if (res.ok) {
+            const targetCode = roomCode;
+            setRoomCode(null);
+            setRoomRole(null);
+            setCourtName(null);
+            setIsRoomCreator(false);
+            localStorage.removeItem("shuttle_room_code");
+            localStorage.removeItem("shuttle_room_role");
+            localStorage.removeItem("shuttle_court_name");
+            localStorage.removeItem("shuttle_is_creator");
+            localStorage.removeItem("shuttle_last_server_update");
+
+            removeRecentCourt(targetCode);
+            showDialog({
+              type: "alert",
+              title: "Court Deleted",
+              message: `Court room ${targetCode} has been deleted permanently from the database.`
+            });
+          } else {
+            showDialog({
+              type: "alert",
+              title: "Error",
+              message: "Failed to delete room from server."
+            });
+          }
+        } catch {
+          showDialog({
+            type: "alert",
+            title: "Connection Error",
+            message: "Failed to communicate with server."
+          });
+        }
+      }
+    });
+  };
+
+
   const handleToggleVoice = () => {
     const newVal = !voiceEnabled;
     setVoiceEnabled(newVal);
@@ -1030,6 +1086,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       handleCreateRoom,
       handleJoinRoom,
       handleDisconnectRoom,
+      handleDeleteRoom,
+      removeRecentCourt,
       handleToggleVoice,
       getDailyLeaderboard,
       showDialog

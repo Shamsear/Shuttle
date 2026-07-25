@@ -23,6 +23,8 @@ export default function HomePage() {
     handleCreateRoom,
     handleJoinRoom,
     handleDisconnectRoom,
+    handleDeleteRoom,
+    removeRecentCourt,
     handleResetSession,
     getDailyLeaderboard,
     showDialog
@@ -214,13 +216,31 @@ export default function HomePage() {
                           </div>
                         </div>
                         
-                        <button 
-                          className="glass-button" 
-                          onClick={() => handleJoinRoom(c.code)}
-                          style={{ padding: "6px 12px", fontSize: "0.72rem", fontWeight: 700, borderColor: "var(--color-serve)", color: "var(--color-serve)" }}
-                        >
-                          Enter Court
-                        </button>
+                        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                          <button 
+                            className="glass-button" 
+                            onClick={() => handleJoinRoom(c.code)}
+                            style={{ padding: "6px 12px", fontSize: "0.72rem", fontWeight: 700, borderColor: "var(--color-serve)", color: "var(--color-serve)" }}
+                          >
+                            Enter Court
+                          </button>
+                          <button 
+                            className="glass-button" 
+                            onClick={() => removeRecentCourt(c.code)}
+                            style={{ 
+                              padding: "6px 8px", 
+                              fontSize: "0.72rem", 
+                              borderColor: "rgba(255,255,255,0.08)", 
+                              color: "var(--text-muted)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center"
+                            }}
+                            title="Remove from recent list"
+                          >
+                            ✕
+                          </button>
+                        </div>
                       </div>
                     ))
                   )}
@@ -357,13 +377,31 @@ export default function HomePage() {
                     ⚠️ {syncError}
                   </div>
                 )}
-                <button 
-                  className="glass-button" 
-                  onClick={handleDisconnectRoom}
-                  style={{ padding: "10px", border: "1px solid rgba(255,255,255,0.08)", fontSize: "0.8rem", width: "100%" }}
-                >
-                  Exit Court Dashboard
-                </button>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}>
+                  <button 
+                    className="glass-button" 
+                    onClick={handleDisconnectRoom}
+                    style={{ padding: "10px", border: "1px solid rgba(255,255,255,0.08)", fontSize: "0.8rem", width: "100%" }}
+                  >
+                    Exit Court Dashboard
+                  </button>
+                  {roomRole === "host" && (
+                    <button 
+                      className="glass-button" 
+                      onClick={handleDeleteRoom}
+                      style={{ 
+                        padding: "10px", 
+                        border: "1px solid rgba(244,63,94,0.15)", 
+                        fontSize: "0.8rem", 
+                        width: "100%", 
+                        color: "var(--color-out)",
+                        background: "rgba(244,63,94,0.02)"
+                      }}
+                    >
+                      🗑️ Delete Court permanently
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 

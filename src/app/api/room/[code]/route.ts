@@ -76,3 +76,32 @@ export async function POST(
     return NextResponse.json({ error: "Failed to update room state" }, { status: 500 });
   }
 }
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ code: string }> }
+) {
+  try {
+    const resolvedParams = await params;
+    const code = resolvedParams.code.toUpperCase();
+    const isDbConnected = getDb() !== null;
+
+    if (isDbConnected) {
+      const supabase = getDb();
+      if (!supabase) {
+        return NextResponse.json({ error: "Database client unavailable" }, { status: 500 });
+      }
+      const { error } = await supabase.from("rooms").delete().eq("code", code);
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      return NextResponse.json({ success: true });
+    } else {
+      // Fallback: Delete from in-memory global registry
+      rooms.delete(code);
+      return NextResponse.json({ success: true });
+    }
+  } catch {
+    return NextResponse.json({ error: "Failed to delete room" }, { status: 500 });
+  }
+}
