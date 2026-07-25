@@ -184,9 +184,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           // Asynchronously verify that each room still exists on the server
           (async () => {
             try {
-              const validationPromises = (parsed as Record<string, unknown>[]).map(async (c) => {
+              const validationPromises = (parsed as { code: string; name: string }[]).map(async (c) => {
                 try {
-                  const res = await fetch(`/api/room/${String(c.code)}`, { cache: "no-store" });
+                  const res = await fetch(`/api/room/${c.code}`, { cache: "no-store" });
                   if (res.ok) return c;
                 } catch (e) {
                   return c; // keep it on network errors to prevent false-positives
@@ -194,7 +194,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
                 return null;
               });
               const results = await Promise.all(validationPromises);
-              const validated = results.filter((c): c is Record<string, unknown> => c !== null);
+              const validated = results.filter((c): c is { code: string; name: string } => c !== null);
 
               if (validated.length !== parsed.length) {
                 setRecentCourts(validated);
