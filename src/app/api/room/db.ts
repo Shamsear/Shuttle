@@ -159,11 +159,23 @@ export async function saveRoomToDb(code: string, state: Partial<RoomState>, isNe
       if (!isNewRoom) {
         if (playerRecords.length > 0) {
           const playerIds = state.players.map((p: Player) => p.id);
-          const { error: delErr } = await supabase.from("players")
-            .delete()
-            .eq("room_code", cleanCode)
-            .not("id", "in", `(${playerIds.join(",")})`);
-          if (delErr) throw delErr;
+          const { data: currentDbPlayers } = await supabase
+            .from("players")
+            .select("id")
+            .eq("room_code", cleanCode);
+
+          if (currentDbPlayers && currentDbPlayers.length > 0) {
+            const currentDbIds = currentDbPlayers.map(p => p.id);
+            const idsToDelete = currentDbIds.filter(id => !playerIds.includes(id));
+            if (idsToDelete.length > 0) {
+              const { error: delErr } = await supabase
+                .from("players")
+                .delete()
+                .eq("room_code", cleanCode)
+                .in("id", idsToDelete);
+              if (delErr) throw delErr;
+            }
+          }
 
           const { error: upsErr } = await supabase.from("players").upsert(playerRecords);
           if (upsErr) throw upsErr;
@@ -225,11 +237,23 @@ export async function saveRoomToDb(code: string, state: Partial<RoomState>, isNe
         } else {
           if (matchRecords.length > 0) {
             const matchIds = state.sessionMatches!.map((m: Match) => m.id);
-            const { error: delErr } = await supabase.from("matches")
-              .delete()
-              .eq("room_code", cleanCode)
-              .not("id", "in", `(${matchIds.join(",")})`);
-            if (delErr) throw delErr;
+            const { data: currentDbMatches } = await supabase
+              .from("matches")
+              .select("id")
+              .eq("room_code", cleanCode);
+
+            if (currentDbMatches && currentDbMatches.length > 0) {
+              const currentDbMatchIds = currentDbMatches.map(m => m.id);
+              const idsToDelete = currentDbMatchIds.filter(id => !matchIds.includes(id));
+              if (idsToDelete.length > 0) {
+                const { error: delErr } = await supabase
+                  .from("matches")
+                  .delete()
+                  .eq("room_code", cleanCode)
+                  .in("id", idsToDelete);
+                if (delErr) throw delErr;
+              }
+            }
 
             const { error: upsErr } = await supabase.from("matches").upsert(matchRecords);
             if (upsErr) throw upsErr;
